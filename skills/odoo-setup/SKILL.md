@@ -1,43 +1,46 @@
 ---
 description: >
-  First-time setup and connection verification for the Odoo connector. Use when:
-  configure odoo, connect to odoo, set up odoo, test odoo connection, odoo ping,
-  verify odoo, check odoo status, odoo not connecting, odoo credentials.
+  First-time setup and connection for the Odoo connector. Use when:
+  configure odoo, connect to odoo, set up odoo, odoo setup, odoo wizard,
+  odoo not configured, odoo credentials, connect to my erp,
+  odoo_setup, test odoo connection, odoo ping, verify odoo, odoo not working.
 ---
 
 # Odoo Connector Setup
 
-Guide the user through connecting Claude to their Odoo instance.
+When the user wants to connect Claude to their Odoo instance, run **odoo_setup**.
 
-## Step 1 — Get Odoo API Key
+## Automatic wizard
 
-Instruct the user to:
-1. Log into their Odoo instance
-2. Click avatar (top right) → **Preferences**
-3. Go to **Security** tab → **API Keys** → **New Key**
-4. Name it "Claude MCP" and copy the generated key
+Call `odoo_setup` — it launches an interactive 4-step wizard that asks the user for:
+1. Odoo URL (e.g., https://mycompany.odoo.com)
+2. Database name (subdomain for SaaS)
+3. Login email
+4. API key
 
-## Step 2 — Configure environment variables
+The wizard saves credentials automatically and tests the connection at the end.
 
-Tell the user to set these four variables in their MCP server config or `.env` file:
+## Getting an API key
 
-| Variable | Description | Example |
-|----------|-------------|---------|
-| `ODOO_URL` | Full URL of their Odoo instance | `https://mycompany.odoo.com` |
-| `ODOO_DB` | Database name (subdomain for SaaS) | `mycompany` |
-| `ODOO_USERNAME` | Login email | `admin@mycompany.com` |
-| `ODOO_API_KEY` | API key from Step 1 | `abc123...` |
+If the user does not have an API key, guide them:
+1. Log into Odoo → click avatar (top right) → **Preferences**
+2. **Security** tab → **API Keys** → **New Key**
+3. Name it anything (e.g., "Claude") and copy the key
 
-> For Odoo SaaS (odoo.com), the database name is the subdomain — e.g., for `mycompany.odoo.com` the DB is `mycompany`.
+## After setup
 
-## Step 3 — Verify connection
+Once connected, suggest these first actions:
+- "Show me the CRM pipeline"
+- "What sales did we confirm this month?"
+- "Are there expenses pending approval?"
+- "Show unreconciled bank movements"
 
-Call `odoo_ping` after configuration. A successful response shows:
-- Odoo version
-- Connected user UID
+## Troubleshooting
 
-If the connection fails, check:
-- URL has no trailing slash
-- DB name is exact (case-sensitive)
-- API key is active and not expired
-- User has sufficient access rights in Odoo
+If connection fails after setup:
+- URL must not have a trailing slash
+- Database name is case-sensitive (for SaaS = subdomain only, no .odoo.com)
+- API key must be active (check in Odoo > Preferences > Security)
+- User must have access rights to the modules being queried
+
+Run `odoo_setup` again to re-enter credentials.

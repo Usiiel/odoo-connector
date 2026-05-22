@@ -1,38 +1,150 @@
-﻿"""
-Odoo MCP Server â€” Claude connector para Odoo Online
-MÃ³dulos: CRM, Ventas, Gastos, ConciliaciÃ³n Bancaria
+﻿“””
+Odoo MCP Server - Claude connector for Odoo Online & Community
+Modules: CRM, Sales, Expenses, Bank Reconciliation
 
-ConfiguraciÃ³n vÃ­a variables de entorno:
-  ODOO_URL      â†’ https://tuempresa.odoo.com
-  ODOO_DB       â†’ nombre de la base de datos
-  ODOO_USERNAME â†’ tu email de Odoo
-  ODOO_API_KEY  â†’ API key generada en Odoo > Preferencias > Seguridad
-"""
+Configuration via environment variables or interactive setup wizard:
+  ODOO_URL      -> https://yourcompany.odoo.com
+  ODOO_DB       -> database name
+  ODOO_USERNAME -> your Odoo login email
+  ODOO_API_KEY  -> API key from Odoo > Preferences > Security
+
+Run ‘odoo_setup’ tool if not configured yet.
+“””
 
 import os
 import json
 from pathlib import Path
 from datetime import datetime, timedelta
-from dotenv import load_dotenv
-from mcp.server.fastmcp import FastMCP
+from dotenv import load_dotenv, set_key
+from mcp.server.fastmcp import FastMCP, Context
 from odoo_client import OdooClient
 
-load_dotenv(dotenv_path=Path(__file__).parent / ".env")
+ENV_PATH = Path(__file__).parent / “.env”
+load_dotenv(dotenv_path=ENV_PATH)
 
-# â”€â”€ InicializaciÃ³n â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+# ── Initialization ────────────────────────────────────────────────────────────
 
-mcp = FastMCP("Odoo MCP")
+mcp = FastMCP(“Odoo Connector”)
+
+def _credentials_missing() -> bool:
+    return not all([
+        os.environ.get(“ODOO_URL”),
+        os.environ.get(“ODOO_DB”),
+        os.environ.get(“ODOO_USERNAME”),
+        os.environ.get(“ODOO_API_KEY”),
+    ])
 
 def get_client() -> OdooClient:
-    url      = os.environ.get("ODOO_URL", "")
-    db       = os.environ.get("ODOO_DB", "")
-    username = os.environ.get("ODOO_USERNAME", "")
-    api_key  = os.environ.get("ODOO_API_KEY", "")
-    if not all([url, db, username, api_key]):
-        raise EnvironmentError(
-            "Faltan variables de entorno: ODOO_URL, ODOO_DB, ODOO_USERNAME, ODOO_API_KEY"
+    if _credentials_missing():
+        return None
+    return OdooClient(
+        os.environ[“ODOO_URL”],
+        os.environ[“ODOO_DB”],
+        os.environ[“ODOO_USERNAME”],
+        os.environ[“ODOO_API_KEY”],
+    )
+
+def _not_configured_msg() -> str:
+    return (
+        “⚠️ Odoo connector is not configured yet.\n”
+        “Run **odoo_setup** to connect to your Odoo instance. “
+        “I’ll guide you through it step by step.”
+    )
+
+
+# ── Setup Wizard ──────────────────────────────────────────────────────────────
+
+@mcp.tool()
+async def odoo_setup(ctx: Context) -> str:
+    “””
+    Interactive setup wizard. Connects Claude to your Odoo instance step by step.
+    Run this first if you haven’t configured the connector yet.
+    “””
+    # Step 1: URL
+    url_result = await ctx.elicit(
+        message=(
+            “Welcome to the **Odoo Connector** setup! 🎉\n\n”
+            “I’ll connect Claude to your Odoo instance in 4 quick steps.\n\n”
+            “**Step 1/4** — What is your Odoo URL?\n”
+            “*(e.g., https://mycompany.odoo.com)*”
+        ),
+        schema={“type”: “object”, “properties”: {“value”: {“type”: “string”, “title”: “Odoo URL”}}, “required”: [“value”]},
+    )
+    if url_result.action != “accept”:
+        return “Setup cancelled.”
+    url = url_result.data[“value”].rstrip(“/”)
+
+    # Step 2: Database
+    db_result = await ctx.elicit(
+        message=(
+            “**Step 2/4** — What is your database name?\n”
+            “*(For Odoo SaaS this is your subdomain — e.g., for mycompany.odoo.com use `mycompany`)*”
+        ),
+        schema={“type”: “object”, “properties”: {“value”: {“type”: “string”, “title”: “Database name”}}, “required”: [“value”]},
+    )
+    if db_result.action != “accept”:
+        return “Setup cancelled.”
+    db = db_result.data[“value”].strip()
+
+    # Step 3: Username
+    user_result = await ctx.elicit(
+        message=(
+            “**Step 3/4** — What is your Odoo login email?”
+        ),
+        schema={“type”: “object”, “properties”: {“value”: {“type”: “string”, “title”: “Email”}}, “required”: [“value”]},
+    )
+    if user_result.action != “accept”:
+        return “Setup cancelled.”
+    username = user_result.data[“value”].strip()
+
+    # Step 4: API Key
+    key_result = await ctx.elicit(
+        message=(
+            “**Step 4/4** — Paste your Odoo API Key.\n\n”
+            “To get one: Odoo → click your avatar → **Preferences** → “
+            “**Security** tab → **API Keys** → **New Key**”
+        ),
+        schema={“type”: “object”, “properties”: {“value”: {“type”: “string”, “title”: “API Key”}}, “required”: [“value”]},
+    )
+    if key_result.action != “accept”:
+        return “Setup cancelled.”
+    api_key = key_result.data[“value”].strip()
+
+    # Save to .env
+    ENV_PATH.touch(exist_ok=True)
+    set_key(str(ENV_PATH), “ODOO_URL”, url)
+    set_key(str(ENV_PATH), “ODOO_DB”, db)
+    set_key(str(ENV_PATH), “ODOO_USERNAME”, username)
+    set_key(str(ENV_PATH), “ODOO_API_KEY”, api_key)
+
+    # Reload env vars in current process
+    os.environ[“ODOO_URL”] = url
+    os.environ[“ODOO_DB”] = db
+    os.environ[“ODOO_USERNAME”] = username
+    os.environ[“ODOO_API_KEY”] = api_key
+
+    # Test connection
+    try:
+        client = OdooClient(url, db, username, api_key)
+        uid = client.authenticate()
+        version = client.get_server_version().get(“server_version”, “N/A”)
+        return (
+            f”✅ Connected to Odoo successfully!\n”
+            f”Version: {version} | User UID: {uid}\n\n”
+            f”You’re all set. Try asking:\n”
+            f”- *Show me the CRM pipeline*\n”
+            f”- *What sales did we confirm this month?*\n”
+            f”- *Are there expenses pending approval?*”
         )
-    return OdooClient(url, db, username, api_key)
+    except Exception as e:
+        return (
+            f”❌ Could not connect: {e}\n\n”
+            f”Please check:\n”
+            f”- URL has no trailing slash\n”
+            f”- Database name is exact (case-sensitive)\n”
+            f”- API key is active\n\n”
+            f”Run **odoo_setup** again to retry.”
+        )
 
 
 # â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
@@ -43,6 +155,8 @@ def get_client() -> OdooClient:
 def odoo_ping() -> str:
     """Verifica la conexiÃ³n con Odoo y retorna la versiÃ³n del servidor."""
     client = get_client()
+    if client is None:
+        return _not_configured_msg()
     version = client.get_server_version()
     uid = client.authenticate()
     return (
@@ -71,6 +185,8 @@ def crm_listar_oportunidades(
         buscar: texto para filtrar por nombre del lead o cliente
     """
     client = get_client()
+    if client is None:
+        return _not_configured_msg()
     domain: list = []
     if estado == "open":
         domain.append(("stage_id.is_won", "=", False))
@@ -128,6 +244,8 @@ def crm_crear_oportunidad(
         notas: descripciÃ³n interna
     """
     client = get_client()
+    if client is None:
+        return _not_configured_msg()
     values: dict = {"name": nombre, "type": "opportunity"}
     if cliente:
         values["partner_name"] = cliente
@@ -161,6 +279,8 @@ def crm_actualizar_etapa(
         etapa_nombre: nombre (parcial) de la etapa destino
     """
     client = get_client()
+    if client is None:
+        return _not_configured_msg()
     stages = client.search_read("crm.stage", [("name", "ilike", etapa_nombre)], ["id", "name"], limit=5)
     if not stages:
         return f"âŒ No se encontrÃ³ ninguna etapa con el nombre '{etapa_nombre}'."
@@ -173,6 +293,8 @@ def crm_actualizar_etapa(
 def crm_resumen_pipeline() -> str:
     """Muestra un resumen del pipeline CRM agrupado por etapa con totales."""
     client = get_client()
+    if client is None:
+        return _not_configured_msg()
     leads = client.search_read(
         "crm.lead",
         [("active", "=", True), ("stage_id.is_won", "=", False), ("type", "=", "opportunity")],
@@ -225,6 +347,8 @@ def ventas_listar_ordenes(
         buscar: texto para filtrar por nombre de cliente u orden
     """
     client = get_client()
+    if client is None:
+        return _not_configured_msg()
     domain: list = []
     if estado != "all":
         domain.append(("state", "=", estado))
@@ -268,6 +392,8 @@ def ventas_detalle_orden(orden_id: int) -> str:
         orden_id: ID numÃ©rico de la orden de venta
     """
     client = get_client()
+    if client is None:
+        return _not_configured_msg()
     orders = client.read("sale.order", [orden_id],
         ["name", "partner_id", "amount_untaxed", "amount_tax", "amount_total",
          "state", "date_order", "user_id", "order_line", "note", "invoice_status"])
@@ -316,6 +442,8 @@ def ventas_resumen_mes(anio: int = 0, mes: int = 0) -> str:
         mes: mes numÃ©rico 1-12, 0 = mes actual
     """
     client = get_client()
+    if client is None:
+        return _not_configured_msg()
     now = datetime.now()
     anio = anio or now.year
     mes = mes or now.month
@@ -377,6 +505,8 @@ def gastos_listar(
         limite: mÃ¡ximo de resultados
     """
     client = get_client()
+    if client is None:
+        return _not_configured_msg()
     domain: list = []
     if estado != "all":
         domain.append(("state", "=", estado))
@@ -427,6 +557,8 @@ def gastos_crear(
         categoria: nombre de la categorÃ­a/producto de gasto
     """
     client = get_client()
+    if client is None:
+        return _not_configured_msg()
 
     # Buscar empleado
     employees = client.search_read("hr.employee", [("name", "ilike", empleado_nombre)], ["id", "name"], limit=3)
@@ -467,6 +599,8 @@ def gastos_resumen_empleado(empleado: str = "", anio: int = 0, mes: int = 0) -> 
         mes: mes 1-12 (0 = todos)
     """
     client = get_client()
+    if client is None:
+        return _not_configured_msg()
     domain: list = []
     if empleado:
         domain.append(("employee_id.name", "ilike", empleado))
@@ -512,6 +646,8 @@ def gastos_resumen_empleado(empleado: str = "", anio: int = 0, mes: int = 0) -> 
 def banco_listar_cuentas() -> str:
     """Lista las cuentas/diarios bancarios configurados en Odoo."""
     client = get_client()
+    if client is None:
+        return _not_configured_msg()
     journals = client.search_read(
         "account.journal",
         [("type", "in", ["bank", "cash"])],
@@ -541,6 +677,8 @@ def banco_movimientos_sin_conciliar(
         limite: mÃ¡ximo de resultados
     """
     client = get_client()
+    if client is None:
+        return _not_configured_msg()
     domain: list = [("is_reconciled", "=", False), ("statement_id", "!=", False)]
     if diario_id:
         domain.append(("journal_id", "=", diario_id))
@@ -577,6 +715,8 @@ def banco_estado_extractos(diario_id: int = 0, limite: int = 10) -> str:
         limite: mÃ¡ximo de extractos a mostrar
     """
     client = get_client()
+    if client is None:
+        return _not_configured_msg()
     domain: list = []
     if diario_id:
         domain.append(("journal_id", "=", diario_id))
@@ -613,6 +753,8 @@ def banco_pagos_recientes(dias: int = 7, limite: int = 20) -> str:
         limite: mÃ¡ximo de resultados
     """
     client = get_client()
+    if client is None:
+        return _not_configured_msg()
     fecha_desde = (datetime.now() - timedelta(days=dias)).strftime("%Y-%m-%d")
     domain = [
         ("date", ">=", fecha_desde),
@@ -656,6 +798,8 @@ def odoo_buscar_cliente(nombre: str, limite: int = 10) -> str:
         limite: mÃ¡ximo de resultados
     """
     client = get_client()
+    if client is None:
+        return _not_configured_msg()
     partners = client.search_read(
         "res.partner",
         ["|", ("name", "ilike", nombre), ("email", "ilike", nombre)],
@@ -695,6 +839,8 @@ def contabilidad_facturas_proveedor(
         buscar: texto para filtrar por proveedor o referencia
     """
     client = get_client()
+    if client is None:
+        return _not_configured_msg()
     domain: list = [("move_type", "in", ["in_invoice", "in_receipt"])]
     if estado != "all":
         domain.append(("state", "=", estado))
@@ -750,6 +896,8 @@ def contabilidad_cruzar_banco_facturas(
         fecha_hasta: fecha fin YYYY-MM-DD
     """
     client = get_client()
+    if client is None:
+        return _not_configured_msg()
 
     # Movimientos sin conciliar
     domain_banco: list = [("is_reconciled", "=", False), ("statement_id", "!=", False)]
