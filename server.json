@@ -1,0 +1,119 @@
+{
+  "$schema": "https://modelcontextprotocol.io/schemas/server.json",
+  "name": "io.github.Usiiel/odoo-connector",
+  "description": "Claude MCP connector for Odoo ERP. Manage your CRM, sales orders, expenses and bank reconciliation in plain language. Works with Odoo Online and Community (v16–v19).",
+  "version_detail": {
+    "version": "0.1.0",
+    "release_date": "2026-05-22",
+    "is_latest": true
+  },
+  "packages": [
+    {
+      "registry_type": "pypi",
+      "name": "odoo-mcp-connector",
+      "version": "0.1.0",
+      "package_arguments": [],
+      "environment_variables": [
+        {
+          "name": "ODOO_URL",
+          "description": "Your Odoo instance URL, e.g. https://yourcompany.odoo.com",
+          "required": false
+        },
+        {
+          "name": "ODOO_DB",
+          "description": "Database name (the subdomain for SaaS, e.g. 'yourcompany')",
+          "required": false
+        },
+        {
+          "name": "ODOO_USERNAME",
+          "description": "Your Odoo login email",
+          "required": false
+        },
+        {
+          "name": "ODOO_API_KEY",
+          "description": "API key from Odoo Preferences → Security → API Keys",
+          "required": false
+        }
+      ]
+    }
+  ],
+  "remotes": [],
+  "tools": [
+    {
+      "name": "odoo_setup",
+      "description": "Interactive wizard to connect Claude to your Odoo instance step by step"
+    },
+    {
+      "name": "odoo_ping",
+      "description": "Verify the Odoo connection and return server version"
+    },
+    {
+      "name": "odoo_buscar_cliente",
+      "description": "Search Odoo contacts / customers by name or email"
+    },
+    {
+      "name": "crm_resumen_pipeline",
+      "description": "Pipeline overview grouped by stage with total expected revenue"
+    },
+    {
+      "name": "crm_listar_oportunidades",
+      "description": "List CRM opportunities with optional filters"
+    },
+    {
+      "name": "crm_crear_oportunidad",
+      "description": "Create a new CRM opportunity"
+    },
+    {
+      "name": "crm_actualizar_etapa",
+      "description": "Move a deal to a different pipeline stage"
+    },
+    {
+      "name": "ventas_listar_ordenes",
+      "description": "List sales orders filtered by status or date"
+    },
+    {
+      "name": "ventas_detalle_orden",
+      "description": "Get full details of a specific sales order"
+    },
+    {
+      "name": "ventas_resumen_mes",
+      "description": "Monthly sales summary grouped by salesperson"
+    },
+    {
+      "name": "gastos_listar",
+      "description": "List expenses filtered by status (draft, reported, approved)"
+    },
+    {
+      "name": "gastos_crear",
+      "description": "Register a new expense"
+    },
+    {
+      "name": "gastos_resumen_empleado",
+      "description": "Expense summary grouped by employee"
+    },
+    {
+      "name": "banco_listar_cuentas",
+      "description": "List bank journals configured in Odoo"
+    },
+    {
+      "name": "banco_movimientos_sin_conciliar",
+      "description": "Find unreconciled bank statement lines"
+    },
+    {
+      "name": "banco_estado_extractos",
+      "description": "Bank statement status (open / closed)"
+    },
+    {
+      "name": "banco_pagos_recientes",
+      "description": "Recent payments registered in Odoo"
+    },
+    {
+      "name": "contabilidad_facturas_proveedor",
+      "description": "List vendor bills filtered by status or date"
+    },
+    {
+      "name": "contabilidad_cruzar_banco_facturas",
+      "description": "Auto-match unreconciled bank movements with vendor bills by amount"
+    }
+  ]
+}

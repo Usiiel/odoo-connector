@@ -1,5 +1,7 @@
 # Odoo Connector for Claude
 
+<!-- mcp-name: io.github.Usiiel/odoo-connector -->
+
 Connect Claude to your Odoo instance (Online or Community) and manage your business in natural language.
 
 ## What you can do
