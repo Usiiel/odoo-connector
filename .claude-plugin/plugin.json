@@ -1,0 +1,13 @@
+{
+  "name": "odoo-connector",
+  "version": "0.1.0",
+  "description": "Connect Claude to Odoo Online or Community via XML-RPC. Query and manage CRM, Sales, Expenses, and Bank Reconciliation in natural language.",
+  "author": {
+    "name": "Manuel Mejias",
+    "email": "usiiel@gmail.com"
+  },
+  "homepage": "https://github.com/usiiel/odoo-connector",
+  "repository": "https://github.com/usiiel/odoo-connector",
+  "license": "MIT",
+  "keywords": ["odoo", "erp", "crm", "accounting", "mcp"]
+}
