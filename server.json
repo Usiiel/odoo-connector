@@ -1,17 +1,17 @@
 {
   "$schema": "https://modelcontextprotocol.io/schemas/server.json",
   "name": "io.github.Usiiel/odoo-connector",
-  "description": "Claude MCP connector for Odoo ERP. Manage your CRM, sales orders, expenses and bank reconciliation in plain language. Works with Odoo Online and Community (v16–v19).",
+  "description": "Claude MCP connector for Odoo ERP. Manage CRM, sales, purchases, inventory, projects, employees, helpdesk, expenses, bank reconciliation, subscriptions, eCommerce, marketing, and more — in plain language. Works with Odoo Online and Community (v16-v19).",
   "version_detail": {
-    "version": "0.1.0",
-    "release_date": "2026-05-22",
+    "version": "0.2.0",
+    "release_date": "2026-05-23",
     "is_latest": true
   },
   "packages": [
     {
       "registry_type": "pypi",
       "name": "odoo-mcp-connector",
-      "version": "0.1.0",
+      "version": "0.2.0",
       "package_arguments": [],
       "environment_variables": [
         {
@@ -31,7 +31,7 @@
         },
         {
           "name": "ODOO_API_KEY",
-          "description": "API key from Odoo Preferences → Security → API Keys",
+          "description": "API key from Odoo Preferences > Security > API Keys",
           "required": false
         }
       ]
@@ -45,7 +45,7 @@
     },
     {
       "name": "odoo_ping",
-      "description": "Verify the Odoo connection and return server version"
+      "description": "Verify the Odoo connection and return server version and user ID"
     },
     {
       "name": "odoo_buscar_cliente",
@@ -57,11 +57,11 @@
     },
     {
       "name": "crm_listar_oportunidades",
-      "description": "List CRM opportunities with optional filters"
+      "description": "List CRM opportunities / leads with optional filters (status, search term)"
     },
     {
       "name": "crm_crear_oportunidad",
-      "description": "Create a new CRM opportunity"
+      "description": "Create a new CRM opportunity with customer, value, deadline and salesperson"
     },
     {
       "name": "crm_actualizar_etapa",
@@ -69,23 +69,23 @@
     },
     {
       "name": "ventas_listar_ordenes",
-      "description": "List sales orders filtered by status or date"
+      "description": "List sales orders filtered by status, date range or customer name"
     },
     {
       "name": "ventas_detalle_orden",
-      "description": "Get full details of a specific sales order"
+      "description": "Get full details of a specific sales order including product lines"
     },
     {
       "name": "ventas_resumen_mes",
-      "description": "Monthly sales summary grouped by salesperson"
+      "description": "Monthly sales summary for confirmed orders, grouped by salesperson"
     },
     {
       "name": "gastos_listar",
-      "description": "List expenses filtered by status (draft, reported, approved)"
+      "description": "List employee expenses filtered by status (draft, reported, approved)"
     },
     {
       "name": "gastos_crear",
-      "description": "Register a new expense"
+      "description": "Register a new employee expense"
     },
     {
       "name": "gastos_resumen_empleado",
@@ -105,15 +105,107 @@
     },
     {
       "name": "banco_pagos_recientes",
-      "description": "Recent payments registered in Odoo"
+      "description": "List payments registered in the last N days"
     },
     {
       "name": "contabilidad_facturas_proveedor",
-      "description": "List vendor bills filtered by status or date"
+      "description": "List vendor bills filtered by date range and status"
     },
     {
       "name": "contabilidad_cruzar_banco_facturas",
-      "description": "Auto-match unreconciled bank movements with vendor bills by amount"
+      "description": "Auto-match unreconciled bank movements with unpaid vendor bills by amount"
+    },
+    {
+      "name": "actividades_pendientes",
+      "description": "List pending activities scheduled in Odoo, with optional overdue filter"
+    },
+    {
+      "name": "helpdesk_tickets",
+      "description": "List helpdesk tickets filtered by status, team, assignee or priority"
+    },
+    {
+      "name": "helpdesk_detalle_ticket",
+      "description": "Get full details of a specific helpdesk ticket"
+    },
+    {
+      "name": "website_paginas",
+      "description": "List published pages on the Odoo website"
+    },
+    {
+      "name": "ecommerce_productos",
+      "description": "List eCommerce products on the Odoo website with optional category and search filters"
+    },
+    {
+      "name": "compras_listar_ordenes",
+      "description": "List purchase orders filtered by status, date range or vendor name"
+    },
+    {
+      "name": "compras_detalle_orden",
+      "description": "Get full details of a specific purchase order including product lines"
+    },
+    {
+      "name": "compras_resumen_mes",
+      "description": "Monthly purchase summary grouped by vendor"
+    },
+    {
+      "name": "inventario_stock",
+      "description": "Query current stock levels by product or location"
+    },
+    {
+      "name": "inventario_movimientos",
+      "description": "List stock transfers / movements filtered by status, direction or date"
+    },
+    {
+      "name": "proyecto_listar",
+      "description": "List projects (active or all)"
+    },
+    {
+      "name": "proyecto_tareas",
+      "description": "List project tasks filtered by project, status, assignee or title"
+    },
+    {
+      "name": "empleados_listar",
+      "description": "List employees filtered by department or name"
+    },
+    {
+      "name": "calendario_eventos",
+      "description": "List upcoming calendar events for the next N days"
+    },
+    {
+      "name": "suscripciones_listar",
+      "description": "List recurring subscriptions filtered by status or customer name"
+    },
+    {
+      "name": "asistencias_reporte",
+      "description": "Report employee check-in / check-out attendance records"
+    },
+    {
+      "name": "marketing_campanas",
+      "description": "List email marketing campaigns filtered by status"
+    },
+    {
+      "name": "whatsapp_mensajes",
+      "description": "List recent WhatsApp messages sent from Odoo"
+    },
+    {
+      "name": "whatsapp_plantillas",
+      "description": "List available WhatsApp message templates"
+    },
+    {
+      "name": "conversaciones_canales",
+      "description": "List Discuss channels and group conversations"
+    },
+    {
+      "name": "documentos_listar",
+      "description": "List documents stored in the Odoo Documents module"
+    },
+    {
+      "name": "citas_listar",
+      "description": "List scheduled appointments within a date range"
+    },
+    {
+      "name": "citas_tipos",
+      "description": "List available appointment types configured in Odoo"
     }
   ]
 }
