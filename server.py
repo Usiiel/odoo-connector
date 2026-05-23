@@ -1,15 +1,15 @@
-﻿“””
+"""
 Odoo MCP Server - Claude connector for Odoo Online & Community
 Modules: CRM, Sales, Expenses, Bank Reconciliation
 
 Configuration via environment variables or interactive setup wizard:
   ODOO_URL      -> https://yourcompany.odoo.com
-  ODOO_DB       -> database name
+  ODOO_DB       -> database name (subdomain for SaaS)
   ODOO_USERNAME -> your Odoo login email
   ODOO_API_KEY  -> API key from Odoo > Preferences > Security
 
-Run ‘odoo_setup’ tool if not configured yet.
-“””
+Run 'odoo_setup' tool if credentials are not configured yet.
+"""
 
 import os
 import json
@@ -19,156 +19,192 @@ from dotenv import load_dotenv, set_key
 from mcp.server.fastmcp import FastMCP, Context
 from odoo_client import OdooClient
 
-ENV_PATH = Path(__file__).parent / “.env”
+ENV_PATH = Path(__file__).parent / ".env"
 load_dotenv(dotenv_path=ENV_PATH)
 
-# ── Initialization ────────────────────────────────────────────────────────────
+mcp = FastMCP("Odoo MCP")
 
-mcp = FastMCP(“Odoo Connector”)
+
+# ---------------------------------------------------------------------------
+#  Helpers
+# ---------------------------------------------------------------------------
 
 def _credentials_missing() -> bool:
     return not all([
-        os.environ.get(“ODOO_URL”),
-        os.environ.get(“ODOO_DB”),
-        os.environ.get(“ODOO_USERNAME”),
-        os.environ.get(“ODOO_API_KEY”),
+        os.environ.get("ODOO_URL"),
+        os.environ.get("ODOO_DB"),
+        os.environ.get("ODOO_USERNAME"),
+        os.environ.get("ODOO_API_KEY"),
     ])
 
-def get_client() -> OdooClient:
+
+def get_client():
     if _credentials_missing():
         return None
     return OdooClient(
-        os.environ[“ODOO_URL”],
-        os.environ[“ODOO_DB”],
-        os.environ[“ODOO_USERNAME”],
-        os.environ[“ODOO_API_KEY”],
+        os.environ["ODOO_URL"],
+        os.environ["ODOO_DB"],
+        os.environ["ODOO_USERNAME"],
+        os.environ["ODOO_API_KEY"],
     )
+
 
 def _not_configured_msg() -> str:
     return (
-        “⚠️ Odoo connector is not configured yet.\n”
-        “Run **odoo_setup** to connect to your Odoo instance. “
-        “I’ll guide you through it step by step.”
+        "[!] Odoo connector is not configured yet.\n"
+        "Run the 'odoo_setup' tool and I will guide you through it step by step."
     )
 
 
-# ── Setup Wizard ──────────────────────────────────────────────────────────────
+# ---------------------------------------------------------------------------
+#  SETUP WIZARD
+# ---------------------------------------------------------------------------
 
 @mcp.tool()
 async def odoo_setup(ctx: Context) -> str:
-    “””
+    """
     Interactive setup wizard. Connects Claude to your Odoo instance step by step.
-    Run this first if you haven’t configured the connector yet.
-    “””
-    # Step 1: URL
-    url_result = await ctx.elicit(
+    Run this tool first if you have not configured credentials yet.
+    """
+    r1 = await ctx.elicit(
         message=(
-            “Welcome to the **Odoo Connector** setup! 🎉\n\n”
-            “I’ll connect Claude to your Odoo instance in 4 quick steps.\n\n”
-            “**Step 1/4** — What is your Odoo URL?\n”
-            “*(e.g., https://mycompany.odoo.com)*”
+            "Welcome to the Odoo connector setup!\n\n"
+            "Step 1/4 - What is your Odoo URL?\n"
+            "Example: https://mycompany.odoo.com"
         ),
-        schema={“type”: “object”, “properties”: {“value”: {“type”: “string”, “title”: “Odoo URL”}}, “required”: [“value”]},
+        schema={
+            "type": "object",
+            "properties": {
+                "url": {
+                    "type": "string",
+                    "title": "Odoo URL",
+                    "description": "Full URL including https://",
+                }
+            },
+            "required": ["url"],
+        },
     )
-    if url_result.action != “accept”:
-        return “Setup cancelled.”
-    url = url_result.data[“value”].rstrip(“/”)
+    if r1.action != "submit":
+        return "Setup cancelled."
+    url = r1.data.get("url", "").strip().rstrip("/")
 
-    # Step 2: Database
-    db_result = await ctx.elicit(
+    r2 = await ctx.elicit(
         message=(
-            “**Step 2/4** — What is your database name?\n”
-            “*(For Odoo SaaS this is your subdomain — e.g., for mycompany.odoo.com use `mycompany`)*”
+            "Step 2/4 - What is your database name?\n"
+            "For Odoo SaaS the database name is the subdomain.\n"
+            "Example: if your URL is https://mycompany.odoo.com the database is 'mycompany'."
         ),
-        schema={“type”: “object”, “properties”: {“value”: {“type”: “string”, “title”: “Database name”}}, “required”: [“value”]},
+        schema={
+            "type": "object",
+            "properties": {
+                "db": {
+                    "type": "string",
+                    "title": "Database name",
+                }
+            },
+            "required": ["db"],
+        },
     )
-    if db_result.action != “accept”:
-        return “Setup cancelled.”
-    db = db_result.data[“value”].strip()
+    if r2.action != "submit":
+        return "Setup cancelled."
+    db = r2.data.get("db", "").strip()
 
-    # Step 3: Username
-    user_result = await ctx.elicit(
+    r3 = await ctx.elicit(
+        message="Step 3/4 - What is your Odoo login email?",
+        schema={
+            "type": "object",
+            "properties": {
+                "username": {
+                    "type": "string",
+                    "title": "Email / username",
+                }
+            },
+            "required": ["username"],
+        },
+    )
+    if r3.action != "submit":
+        return "Setup cancelled."
+    username = r3.data.get("username", "").strip()
+
+    r4 = await ctx.elicit(
         message=(
-            “**Step 3/4** — What is your Odoo login email?”
+            "Step 4/4 - Paste your Odoo API key.\n\n"
+            "To generate one: Odoo > click your avatar > Preferences > "
+            "Security tab > API Keys > New Key.\n"
+            "Name it 'Claude MCP' and copy the generated key."
         ),
-        schema={“type”: “object”, “properties”: {“value”: {“type”: “string”, “title”: “Email”}}, “required”: [“value”]},
+        schema={
+            "type": "object",
+            "properties": {
+                "api_key": {
+                    "type": "string",
+                    "title": "API Key",
+                }
+            },
+            "required": ["api_key"],
+        },
     )
-    if user_result.action != “accept”:
-        return “Setup cancelled.”
-    username = user_result.data[“value”].strip()
+    if r4.action != "submit":
+        return "Setup cancelled."
+    api_key = r4.data.get("api_key", "").strip()
 
-    # Step 4: API Key
-    key_result = await ctx.elicit(
-        message=(
-            “**Step 4/4** — Paste your Odoo API Key.\n\n”
-            “To get one: Odoo → click your avatar → **Preferences** → “
-            “**Security** tab → **API Keys** → **New Key**”
-        ),
-        schema={“type”: “object”, “properties”: {“value”: {“type”: “string”, “title”: “API Key”}}, “required”: [“value”]},
-    )
-    if key_result.action != “accept”:
-        return “Setup cancelled.”
-    api_key = key_result.data[“value”].strip()
+    if not all([url, db, username, api_key]):
+        return "[!] One or more values were empty. Please run odoo_setup again."
 
-    # Save to .env
-    ENV_PATH.touch(exist_ok=True)
-    set_key(str(ENV_PATH), “ODOO_URL”, url)
-    set_key(str(ENV_PATH), “ODOO_DB”, db)
-    set_key(str(ENV_PATH), “ODOO_USERNAME”, username)
-    set_key(str(ENV_PATH), “ODOO_API_KEY”, api_key)
-
-    # Reload env vars in current process
-    os.environ[“ODOO_URL”] = url
-    os.environ[“ODOO_DB”] = db
-    os.environ[“ODOO_USERNAME”] = username
-    os.environ[“ODOO_API_KEY”] = api_key
-
-    # Test connection
     try:
         client = OdooClient(url, db, username, api_key)
+        version = client.get_server_version()
         uid = client.authenticate()
-        version = client.get_server_version().get(“server_version”, “N/A”)
-        return (
-            f”✅ Connected to Odoo successfully!\n”
-            f”Version: {version} | User UID: {uid}\n\n”
-            f”You’re all set. Try asking:\n”
-            f”- *Show me the CRM pipeline*\n”
-            f”- *What sales did we confirm this month?*\n”
-            f”- *Are there expenses pending approval?*”
-        )
     except Exception as e:
         return (
-            f”❌ Could not connect: {e}\n\n”
-            f”Please check:\n”
-            f”- URL has no trailing slash\n”
-            f”- Database name is exact (case-sensitive)\n”
-            f”- API key is active\n\n”
-            f”Run **odoo_setup** again to retry.”
+            f"[!] Connection failed: {e}\n"
+            "Please check your credentials and try odoo_setup again."
         )
 
+    ENV_PATH.touch(exist_ok=True)
+    set_key(str(ENV_PATH), "ODOO_URL", url)
+    set_key(str(ENV_PATH), "ODOO_DB", db)
+    set_key(str(ENV_PATH), "ODOO_USERNAME", username)
+    set_key(str(ENV_PATH), "ODOO_API_KEY", api_key)
 
-# â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
-#  ðŸ”Œ CONEXIÃ“N / DIAGNÃ“STICO
-# â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+    os.environ["ODOO_URL"] = url
+    os.environ["ODOO_DB"] = db
+    os.environ["ODOO_USERNAME"] = username
+    os.environ["ODOO_API_KEY"] = api_key
+
+    server_ver = version.get("server_version", "N/A")
+    return (
+        f"[OK] Connected to Odoo successfully!\n"
+        f"URL:     {url}\n"
+        f"DB:      {db}\n"
+        f"User:    {username} (UID: {uid})\n"
+        f"Version: {server_ver}\n\n"
+        "Credentials saved to .env. You can now use all Odoo tools."
+    )
+
+
+# ---------------------------------------------------------------------------
+#  PING / DIAGNOSTICS
+# ---------------------------------------------------------------------------
 
 @mcp.tool()
 def odoo_ping() -> str:
-    """Verifica la conexiÃ³n con Odoo y retorna la versiÃ³n del servidor."""
+    """Verify the Odoo connection and return server version and user ID."""
     client = get_client()
     if client is None:
         return _not_configured_msg()
     version = client.get_server_version()
     uid = client.authenticate()
     return (
-        f"âœ… Conectado a Odoo\n"
-        f"VersiÃ³n: {version.get('server_version', 'N/A')}\n"
-        f"UID de usuario: {uid}"
+        f"[OK] Connected to Odoo\n"
+        f"Version: {version.get('server_version', 'N/A')}\n"
+        f"User UID: {uid}"
     )
 
 
-# â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
-#  ðŸ“Š CRM â€” Oportunidades / Leads
-# â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+# ---------------------------------------------------------------------------
+#  CRM
+# ---------------------------------------------------------------------------
 
 @mcp.tool()
 def crm_listar_oportunidades(
@@ -177,12 +213,12 @@ def crm_listar_oportunidades(
     buscar: str = ""
 ) -> str:
     """
-    Lista oportunidades/leads del CRM.
+    List CRM opportunities / leads.
 
     Args:
-        estado: 'open' (activas), 'won' (ganadas), 'lost' (perdidas), 'all' (todas)
-        limite: cantidad mÃ¡xima de resultados (default 15)
-        buscar: texto para filtrar por nombre del lead o cliente
+        estado: 'open' (active), 'won', 'lost', 'all'
+        limite: max results (default 15)
+        buscar: filter by lead name or customer
     """
     client = get_client()
     if client is None:
@@ -195,20 +231,16 @@ def crm_listar_oportunidades(
         domain.append(("stage_id.is_won", "=", True))
     elif estado == "lost":
         domain.append(("active", "=", False))
-
     if buscar:
         domain.append("|")
         domain.append(("name", "ilike", buscar))
         domain.append(("partner_name", "ilike", buscar))
-
     fields = ["name", "partner_name", "expected_revenue", "stage_id",
-              "user_id", "date_deadline", "probability", "tag_ids"]
+              "user_id", "date_deadline", "probability"]
     leads = client.search_read("crm.lead", domain, fields, limit=limite, order="expected_revenue desc")
-
     if not leads:
-        return "No se encontraron oportunidades con esos filtros."
-
-    lines = [f"{'#':<4} {'Oportunidad':<30} {'Cliente':<25} {'Etapa':<20} {'Valor Est.':<12} {'Prob%':<7} {'Cierre'}"]
+        return "No opportunities found with those filters."
+    lines = [f"{'#':<4} {'Opportunity':<30} {'Customer':<25} {'Stage':<20} {'Est. Value':<12} {'Prob%':<7} {'Deadline'}"]
     lines.append("-" * 110)
     for l in leads:
         lines.append(
@@ -218,7 +250,7 @@ def crm_listar_oportunidades(
             f"{str(l['stage_id'][1] if l.get('stage_id') else '')[:19]:<20} "
             f"${l.get('expected_revenue', 0):>10,.0f} "
             f"{l.get('probability', 0):>5.0f}% "
-            f"{l.get('date_deadline') or 'Sin fecha'}"
+            f"{l.get('date_deadline') or 'No date'}"
         )
     return "\n".join(lines)
 
@@ -233,15 +265,15 @@ def crm_crear_oportunidad(
     notas: str = ""
 ) -> str:
     """
-    Crea una nueva oportunidad en el CRM.
+    Create a new CRM opportunity.
 
     Args:
-        nombre: nombre/tÃ­tulo de la oportunidad (requerido)
-        cliente: nombre del cliente/empresa
-        valor_esperado: monto esperado de la venta
-        fecha_cierre: fecha lÃ­mite en formato YYYY-MM-DD
-        vendedor_email: email del vendedor asignado
-        notas: descripciÃ³n interna
+        nombre: opportunity title (required)
+        cliente: customer/company name
+        valor_esperado: expected sale amount
+        fecha_cierre: deadline in YYYY-MM-DD
+        vendedor_email: assigned salesperson email
+        notas: internal description
     """
     client = get_client()
     if client is None:
@@ -255,43 +287,37 @@ def crm_crear_oportunidad(
         values["date_deadline"] = fecha_cierre
     if notas:
         values["description"] = notas
-
-    # Buscar usuario por email si se proveyÃ³
     if vendedor_email:
         users = client.search_read("res.users", [("login", "=", vendedor_email)], ["id", "name"], limit=1)
         if users:
             values["user_id"] = users[0]["id"]
-
     lead_id = client.create("crm.lead", values)
-    return f"âœ… Oportunidad creada con ID {lead_id}: '{nombre}'"
+    return f"[OK] Opportunity created with ID {lead_id}: '{nombre}'"
 
 
 @mcp.tool()
-def crm_actualizar_etapa(
-    oportunidad_id: int,
-    etapa_nombre: str
-) -> str:
+def crm_actualizar_etapa(oportunidad_id: int, etapa_nombre: str) -> str:
     """
-    Mueve una oportunidad a una nueva etapa del pipeline.
+    Move an opportunity to a different pipeline stage.
 
     Args:
-        oportunidad_id: ID de la oportunidad
-        etapa_nombre: nombre (parcial) de la etapa destino
+        oportunidad_id: opportunity ID
+        etapa_nombre: partial name of the target stage
     """
     client = get_client()
     if client is None:
         return _not_configured_msg()
     stages = client.search_read("crm.stage", [("name", "ilike", etapa_nombre)], ["id", "name"], limit=5)
     if not stages:
-        return f"âŒ No se encontrÃ³ ninguna etapa con el nombre '{etapa_nombre}'."
+        return f"[!] No stage found with name '{etapa_nombre}'."
     stage = stages[0]
     client.write("crm.lead", [oportunidad_id], {"stage_id": stage["id"]})
-    return f"âœ… Oportunidad {oportunidad_id} movida a etapa '{stage['name']}'"
+    return f"[OK] Opportunity {oportunidad_id} moved to stage '{stage['name']}'"
 
 
 @mcp.tool()
 def crm_resumen_pipeline() -> str:
-    """Muestra un resumen del pipeline CRM agrupado por etapa con totales."""
+    """Show a CRM pipeline summary grouped by stage with totals."""
     client = get_client()
     if client is None:
         return _not_configured_msg()
@@ -301,16 +327,15 @@ def crm_resumen_pipeline() -> str:
         ["stage_id", "expected_revenue", "probability"],
         limit=500
     )
-    pipeline: dict[str, dict] = {}
+    pipeline: dict = {}
     for l in leads:
-        stage = l["stage_id"][1] if l.get("stage_id") else "Sin etapa"
+        stage = l["stage_id"][1] if l.get("stage_id") else "No stage"
         if stage not in pipeline:
             pipeline[stage] = {"count": 0, "total": 0, "weighted": 0}
         pipeline[stage]["count"] += 1
         pipeline[stage]["total"] += l.get("expected_revenue", 0)
         pipeline[stage]["weighted"] += l.get("expected_revenue", 0) * l.get("probability", 0) / 100
-
-    lines = [f"{'Etapa':<28} {'Opps':>5} {'Valor Total':>14} {'Valor Ponderado':>16}"]
+    lines = [f"{'Stage':<28} {'Opps':>5} {'Total Value':>14} {'Weighted Value':>16}"]
     lines.append("-" * 68)
     grand_total = grand_weighted = grand_count = 0
     for stage, data in pipeline.items():
@@ -326,9 +351,9 @@ def crm_resumen_pipeline() -> str:
     return "\n".join(lines)
 
 
-# â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
-#  ðŸ’° VENTAS â€” Ã“rdenes de Venta
-# â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+# ---------------------------------------------------------------------------
+#  SALES
+# ---------------------------------------------------------------------------
 
 @mcp.tool()
 def ventas_listar_ordenes(
@@ -338,13 +363,13 @@ def ventas_listar_ordenes(
     buscar: str = ""
 ) -> str:
     """
-    Lista Ã³rdenes de venta.
+    List sales orders.
 
     Args:
-        estado: 'draft' (cotizaciÃ³n), 'sale' (confirmada), 'done' (facturada), 'cancel' (cancelada), 'all'
-        limite: cantidad mÃ¡xima de resultados
-        dias: filtrar Ã³rdenes de los Ãºltimos N dÃ­as (0 = sin filtro)
-        buscar: texto para filtrar por nombre de cliente u orden
+        estado: 'draft' (quotation), 'sale' (confirmed), 'done' (invoiced), 'cancel', 'all'
+        limite: max results
+        dias: filter orders from the last N days (0 = no filter)
+        buscar: filter by customer name or order number
     """
     client = get_client()
     if client is None:
@@ -359,17 +384,14 @@ def ventas_listar_ordenes(
         domain.append("|")
         domain.append(("name", "ilike", buscar))
         domain.append(("partner_id.name", "ilike", buscar))
-
     fields = ["name", "partner_id", "amount_total", "state", "date_order",
-              "user_id", "invoice_status", "currency_id"]
+              "user_id", "invoice_status"]
     orders = client.search_read("sale.order", domain, fields, limit=limite, order="date_order desc")
-
     if not orders:
-        return "No se encontraron Ã³rdenes de venta."
-
-    estado_map = {"draft": "CotizaciÃ³n", "sent": "Enviada", "sale": "Confirmada",
-                  "done": "Facturada", "cancel": "Cancelada"}
-    lines = [f"{'#Orden':<12} {'Cliente':<28} {'Total':>12} {'Estado':<12} {'Fact.':<12} {'Fecha'}"]
+        return "No sales orders found."
+    estado_map = {"draft": "Quotation", "sent": "Sent", "sale": "Confirmed",
+                  "done": "Invoiced", "cancel": "Cancelled"}
+    lines = [f"{'Order':<12} {'Customer':<28} {'Total':>12} {'Status':<12} {'Invoice':<12} {'Date'}"]
     lines.append("-" * 90)
     for o in orders:
         lines.append(
@@ -386,10 +408,10 @@ def ventas_listar_ordenes(
 @mcp.tool()
 def ventas_detalle_orden(orden_id: int) -> str:
     """
-    Muestra el detalle completo de una orden de venta incluyendo lÃ­neas de producto.
+    Get full details of a sales order including product lines.
 
     Args:
-        orden_id: ID numÃ©rico de la orden de venta
+        orden_id: numeric sales order ID
     """
     client = get_client()
     if client is None:
@@ -398,20 +420,18 @@ def ventas_detalle_orden(orden_id: int) -> str:
         ["name", "partner_id", "amount_untaxed", "amount_tax", "amount_total",
          "state", "date_order", "user_id", "order_line", "note", "invoice_status"])
     if not orders:
-        return f"Orden {orden_id} no encontrada."
+        return f"Order {orden_id} not found."
     o = orders[0]
-
     lines_data = client.read("sale.order.line", o["order_line"],
         ["product_id", "product_uom_qty", "price_unit", "price_subtotal", "name"])
-
     output = [
-        f"ðŸ“‹ Orden: {o['name']}",
-        f"Cliente: {o['partner_id'][1] if o.get('partner_id') else 'N/A'}",
-        f"Fecha:   {str(o.get('date_order', ''))[:16]}",
-        f"Estado:  {o.get('state', '')} | FacturaciÃ³n: {o.get('invoice_status', '')}",
-        f"Vendedor:{o['user_id'][1] if o.get('user_id') else 'N/A'}",
+        f"Order:    {o['name']}",
+        f"Customer: {o['partner_id'][1] if o.get('partner_id') else 'N/A'}",
+        f"Date:     {str(o.get('date_order', ''))[:16]}",
+        f"Status:   {o.get('state', '')} | Invoicing: {o.get('invoice_status', '')}",
+        f"Salesperson: {o['user_id'][1] if o.get('user_id') else 'N/A'}",
         "",
-        f"{'Producto':<35} {'Cant':>6} {'Precio':>12} {'Subtotal':>12}",
+        f"{'Product':<35} {'Qty':>6} {'Price':>12} {'Subtotal':>12}",
         "-" * 68,
     ]
     for line in lines_data:
@@ -424,22 +444,22 @@ def ventas_detalle_orden(orden_id: int) -> str:
     output.extend([
         "-" * 68,
         f"{'Subtotal':>56} ${o.get('amount_untaxed', 0):>11,.2f}",
-        f"{'Impuestos':>56} ${o.get('amount_tax', 0):>11,.2f}",
+        f"{'Taxes':>56} ${o.get('amount_tax', 0):>11,.2f}",
         f"{'TOTAL':>56} ${o.get('amount_total', 0):>11,.2f}",
     ])
     if o.get("note"):
-        output += ["", f"Nota: {o['note']}"]
+        output += ["", f"Note: {o['note']}"]
     return "\n".join(output)
 
 
 @mcp.tool()
 def ventas_resumen_mes(anio: int = 0, mes: int = 0) -> str:
     """
-    Resumen de ventas confirmadas del mes indicado (o del mes actual si no se especifica).
+    Monthly sales summary for confirmed orders, grouped by salesperson.
 
     Args:
-        anio: aÃ±o (ej: 2025), 0 = aÃ±o actual
-        mes: mes numÃ©rico 1-12, 0 = mes actual
+        anio: year (e.g. 2025), 0 = current year
+        mes: month 1-12, 0 = current month
     """
     client = get_client()
     if client is None:
@@ -452,7 +472,6 @@ def ventas_resumen_mes(anio: int = 0, mes: int = 0) -> str:
         fecha_fin = f"{anio + 1}-01-01"
     else:
         fecha_fin = f"{anio}-{mes + 1:02d}-01"
-
     orders = client.search_read(
         "sale.order",
         [("state", "in", ["sale", "done"]),
@@ -461,33 +480,28 @@ def ventas_resumen_mes(anio: int = 0, mes: int = 0) -> str:
         ["name", "partner_id", "amount_total", "user_id"],
         limit=500
     )
-
     total = sum(o["amount_total"] for o in orders)
-    by_vendor: dict[str, float] = {}
+    by_vendor: dict = {}
+    vendor_counts: dict = {}
     for o in orders:
-        v = o["user_id"][1] if o.get("user_id") else "Sin asignar"
+        v = o["user_id"][1] if o.get("user_id") else "Unassigned"
         by_vendor[v] = by_vendor.get(v, 0) + o["amount_total"]
-
+        vendor_counts[v] = vendor_counts.get(v, 0) + 1
     lines = [
-        f"ðŸ“… Resumen de Ventas â€” {mes:02d}/{anio}",
-        f"Total Ã³rdenes: {len(orders)}  |  Total facturado: ${total:,.2f}",
+        f"Sales Summary - {mes:02d}/{anio}",
+        f"Total orders: {len(orders)}  |  Total revenue: ${total:,.2f}",
         "",
-        f"{'Vendedor':<30} {'Ventas':>8} {'Total':>14}",
+        f"{'Salesperson':<30} {'Orders':>8} {'Total':>14}",
         "-" * 55,
     ]
-    vendor_counts: dict[str, int] = {}
-    for o in orders:
-        v = o["user_id"][1] if o.get("user_id") else "Sin asignar"
-        vendor_counts[v] = vendor_counts.get(v, 0) + 1
-
     for v, total_v in sorted(by_vendor.items(), key=lambda x: -x[1]):
         lines.append(f"{v[:29]:<30} {vendor_counts[v]:>8} ${total_v:>13,.2f}")
     return "\n".join(lines)
 
 
-# â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
-#  ðŸ§¾ GASTOS
-# â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+# ---------------------------------------------------------------------------
+#  EXPENSES
+# ---------------------------------------------------------------------------
 
 @mcp.tool()
 def gastos_listar(
@@ -496,13 +510,12 @@ def gastos_listar(
     limite: int = 20
 ) -> str:
     """
-    Lista gastos de empleados.
+    List employee expenses.
 
     Args:
-        estado: 'draft' (borrador), 'reported' (reportado), 'approved' (aprobado),
-                'done' (pagado), 'refused' (rechazado), 'all'
-        empleado: nombre (parcial) del empleado para filtrar
-        limite: mÃ¡ximo de resultados
+        estado: 'draft', 'reported', 'approved', 'done' (paid), 'refused', 'all'
+        empleado: filter by employee name (partial)
+        limite: max results
     """
     client = get_client()
     if client is None:
@@ -512,19 +525,15 @@ def gastos_listar(
         domain.append(("state", "=", estado))
     if empleado:
         domain.append(("employee_id.name", "ilike", empleado))
-
-    fields = ["name", "employee_id", "total_amount", "currency_id",
-              "state", "date", "product_id"]
+    fields = ["name", "employee_id", "total_amount", "state", "date", "product_id"]
     expenses = client.search_read("hr.expense", domain, fields, limit=limite, order="date desc")
-
     if not expenses:
-        return "No se encontraron gastos con esos filtros."
-
+        return "No expenses found with those filters."
     estado_map = {
-        "draft": "Borrador", "reported": "Reportado", "approved": "Aprobado",
-        "done": "Pagado", "refused": "Rechazado"
+        "draft": "Draft", "reported": "Reported", "approved": "Approved",
+        "done": "Paid", "refused": "Refused"
     }
-    lines = [f"{'ID':<6} {'DescripciÃ³n':<30} {'Empleado':<22} {'Monto':>10} {'Estado':<12} {'Fecha'}"]
+    lines = [f"{'ID':<6} {'Description':<30} {'Employee':<22} {'Amount':>10} {'Status':<12} {'Date'}"]
     lines.append("-" * 95)
     for e in expenses:
         lines.append(
@@ -547,25 +556,22 @@ def gastos_crear(
     categoria: str = ""
 ) -> str:
     """
-    Registra un nuevo gasto.
+    Register a new expense.
 
     Args:
-        descripcion: descripciÃ³n del gasto
-        monto: monto total
-        empleado_nombre: nombre del empleado (debe existir en Odoo)
-        fecha: fecha en YYYY-MM-DD (default: hoy)
-        categoria: nombre de la categorÃ­a/producto de gasto
+        descripcion: expense description
+        monto: total amount
+        empleado_nombre: employee name (must exist in Odoo)
+        fecha: date in YYYY-MM-DD (default: today)
+        categoria: expense product/category name
     """
     client = get_client()
     if client is None:
         return _not_configured_msg()
-
-    # Buscar empleado
     employees = client.search_read("hr.employee", [("name", "ilike", empleado_nombre)], ["id", "name"], limit=3)
     if not employees:
-        return f"âŒ No se encontrÃ³ empleado con nombre '{empleado_nombre}'."
+        return f"[!] No employee found with name '{empleado_nombre}'."
     emp = employees[0]
-
     values: dict = {
         "name": descripcion,
         "employee_id": emp["id"],
@@ -573,30 +579,27 @@ def gastos_crear(
         "date": fecha or datetime.now().strftime("%Y-%m-%d"),
         "quantity": 1,
     }
-
-    # Buscar categorÃ­a de producto de gasto
     if categoria:
         products = client.search_read(
-            "hr.expense.category" if False else "product.product",
+            "product.product",
             [("name", "ilike", categoria), ("can_be_expensed", "=", True)],
             ["id", "name"], limit=3
         )
         if products:
             values["product_id"] = products[0]["id"]
-
     expense_id = client.create("hr.expense", values)
-    return f"âœ… Gasto creado (ID {expense_id}): '{descripcion}' â€” ${monto:,.2f} para {emp['name']}"
+    return f"[OK] Expense created (ID {expense_id}): '{descripcion}' - ${monto:,.2f} for {emp['name']}"
 
 
 @mcp.tool()
 def gastos_resumen_empleado(empleado: str = "", anio: int = 0, mes: int = 0) -> str:
     """
-    Resumen de gastos por empleado y estado.
+    Expense summary grouped by employee.
 
     Args:
-        empleado: nombre parcial del empleado (vacÃ­o = todos)
-        anio: aÃ±o (0 = todos)
-        mes: mes 1-12 (0 = todos)
+        empleado: partial employee name (empty = all)
+        anio: year (0 = all)
+        mes: month 1-12 (0 = all)
     """
     client = get_client()
     if client is None:
@@ -613,22 +616,15 @@ def gastos_resumen_empleado(empleado: str = "", anio: int = 0, mes: int = 0) -> 
         fecha_fin = f"{anio}-{mes + 1:02d}-01" if mes < 12 else f"{anio + 1}-01-01"
         domain.append(("date", ">=", fecha_inicio))
         domain.append(("date", "<", fecha_fin))
-
-    expenses = client.search_read(
-        "hr.expense", domain,
-        ["employee_id", "total_amount", "state"],
-        limit=1000
-    )
-
-    by_emp: dict[str, dict] = {}
+    expenses = client.search_read("hr.expense", domain, ["employee_id", "total_amount", "state"], limit=1000)
+    by_emp: dict = {}
     for e in expenses:
         emp = e["employee_id"][1] if e.get("employee_id") else "N/A"
         if emp not in by_emp:
             by_emp[emp] = {"total": 0, "count": 0}
         by_emp[emp]["total"] += e.get("total_amount", 0)
         by_emp[emp]["count"] += 1
-
-    lines = [f"{'Empleado':<30} {'Gastos':>8} {'Total':>14}"]
+    lines = [f"{'Employee':<30} {'Expenses':>8} {'Total':>14}"]
     lines.append("-" * 55)
     for emp, data in sorted(by_emp.items(), key=lambda x: -x[1]["total"]):
         lines.append(f"{emp[:29]:<30} {data['count']:>8} ${data['total']:>13,.2f}")
@@ -638,13 +634,13 @@ def gastos_resumen_empleado(empleado: str = "", anio: int = 0, mes: int = 0) -> 
     return "\n".join(lines)
 
 
-# â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
-#  ðŸ¦ CONCILIACIÃ“N BANCARIA
-# â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+# ---------------------------------------------------------------------------
+#  BANK RECONCILIATION
+# ---------------------------------------------------------------------------
 
 @mcp.tool()
 def banco_listar_cuentas() -> str:
-    """Lista las cuentas/diarios bancarios configurados en Odoo."""
+    """List bank journals configured in Odoo."""
     client = get_client()
     if client is None:
         return _not_configured_msg()
@@ -655,26 +651,23 @@ def banco_listar_cuentas() -> str:
         limit=20
     )
     if not journals:
-        return "No se encontraron diarios bancarios."
-    lines = [f"{'ID':<5} {'Nombre':<30} {'Tipo':<8} {'Moneda'}"]
+        return "No bank journals found."
+    lines = [f"{'ID':<5} {'Name':<30} {'Type':<8} {'Currency'}"]
     lines.append("-" * 55)
     for j in journals:
-        currency = j["currency_id"][1] if j.get("currency_id") else "Empresa"
+        currency = j["currency_id"][1] if j.get("currency_id") else "Company default"
         lines.append(f"{j['id']:<5} {j['name'][:29]:<30} {j['type']:<8} {currency}")
     return "\n".join(lines)
 
 
 @mcp.tool()
-def banco_movimientos_sin_conciliar(
-    diario_id: int = 0,
-    limite: int = 20
-) -> str:
+def banco_movimientos_sin_conciliar(diario_id: int = 0, limite: int = 20) -> str:
     """
-    Lista movimientos bancarios (extracto) pendientes de conciliar.
+    List unreconciled bank statement lines.
 
     Args:
-        diario_id: ID del diario bancario (0 = todos los bancos)
-        limite: mÃ¡ximo de resultados
+        diario_id: bank journal ID (0 = all journals)
+        limite: max results
     """
     client = get_client()
     if client is None:
@@ -682,17 +675,13 @@ def banco_movimientos_sin_conciliar(
     domain: list = [("is_reconciled", "=", False), ("statement_id", "!=", False)]
     if diario_id:
         domain.append(("journal_id", "=", diario_id))
-
-    fields = ["date", "payment_ref", "amount", "currency_id",
-              "journal_id", "partner_name", "statement_id"]
+    fields = ["date", "payment_ref", "amount", "journal_id", "partner_name"]
     lines_data = client.search_read(
         "account.bank.statement.line", domain, fields, limit=limite, order="date desc"
     )
-
     if not lines_data:
-        return "âœ… No hay movimientos pendientes de conciliar."
-
-    lines = [f"{'Fecha':<12} {'Referencia':<30} {'Partner':<22} {'Monto':>12} {'Banco'}"]
+        return "[OK] No unreconciled movements found."
+    lines = [f"{'Date':<12} {'Reference':<30} {'Partner':<22} {'Amount':>12} {'Bank'}"]
     lines.append("-" * 95)
     for l in lines_data:
         lines.append(
@@ -702,17 +691,17 @@ def banco_movimientos_sin_conciliar(
             f"${l.get('amount', 0):>11,.2f} "
             f"{l['journal_id'][1] if l.get('journal_id') else ''}"
         )
-    return f"Movimientos sin conciliar ({len(lines_data)}):\n" + "\n".join(lines)
+    return f"Unreconciled movements ({len(lines_data)}):\n" + "\n".join(lines)
 
 
 @mcp.tool()
 def banco_estado_extractos(diario_id: int = 0, limite: int = 10) -> str:
     """
-    Muestra el estado de los extractos bancarios (abiertos vs cerrados).
+    Show bank statement status (open vs closed).
 
     Args:
-        diario_id: ID del diario (0 = todos)
-        limite: mÃ¡ximo de extractos a mostrar
+        diario_id: journal ID (0 = all)
+        limite: max statements to show
     """
     client = get_client()
     if client is None:
@@ -720,25 +709,21 @@ def banco_estado_extractos(diario_id: int = 0, limite: int = 10) -> str:
     domain: list = []
     if diario_id:
         domain.append(("journal_id", "=", diario_id))
-
-    fields = ["name", "journal_id", "date", "balance_start",
-              "balance_end_real", "currency_id"]
+    fields = ["name", "journal_id", "date", "balance_start", "balance_end_real"]
     statements = client.search_read(
         "account.bank.statement", domain, fields, limit=limite, order="date desc"
     )
-
     if not statements:
-        return "No se encontraron extractos bancarios."
-
-    lines = [f"{'Extracto':<20} {'Banco':<25} {'Fecha':<12} {'Saldo Inicial':>14} {'Saldo Final':>14}"]
-    lines.append("-" * 90)
+        return "No bank statements found."
+    lines = [f"{'Statement':<20} {'Bank':<25} {'Date':<12} {'Opening Balance':>15} {'Closing Balance':>15}"]
+    lines.append("-" * 92)
     for s in statements:
         lines.append(
             f"{str(s.get('name', ''))[:19]:<20} "
             f"{str(s['journal_id'][1] if s.get('journal_id') else '')[:24]:<25} "
             f"{str(s.get('date', '')):<12} "
-            f"${s.get('balance_start', 0):>13,.2f} "
-            f"${s.get('balance_end_real', 0):>13,.2f}"
+            f"${s.get('balance_start', 0):>14,.2f} "
+            f"${s.get('balance_end_real', 0):>14,.2f}"
         )
     return "\n".join(lines)
 
@@ -746,31 +731,25 @@ def banco_estado_extractos(diario_id: int = 0, limite: int = 10) -> str:
 @mcp.tool()
 def banco_pagos_recientes(dias: int = 7, limite: int = 20) -> str:
     """
-    Lista pagos registrados en los Ãºltimos N dÃ­as.
+    List payments registered in the last N days.
 
     Args:
-        dias: ventana de dÃ­as hacia atrÃ¡s (default 7)
-        limite: mÃ¡ximo de resultados
+        dias: lookback window in days (default 7)
+        limite: max results
     """
     client = get_client()
     if client is None:
         return _not_configured_msg()
     fecha_desde = (datetime.now() - timedelta(days=dias)).strftime("%Y-%m-%d")
-    domain = [
-        ("date", ">=", fecha_desde),
-        ("state", "in", ["posted", "reconciled"])
-    ]
-    fields = ["name", "partner_id", "amount", "payment_type",
-              "journal_id", "date", "state", "currency_id"]
+    domain = [("date", ">=", fecha_desde), ("state", "in", ["posted", "reconciled"])]
+    fields = ["name", "partner_id", "amount", "payment_type", "journal_id", "date", "state"]
     payments = client.search_read(
         "account.payment", domain, fields, limit=limite, order="date desc"
     )
-
     if not payments:
-        return f"No se encontraron pagos en los Ãºltimos {dias} dÃ­as."
-
-    tipo_map = {"inbound": "Cobro", "outbound": "Pago", "transfer": "Transferencia"}
-    lines = [f"{'Referencia':<16} {'Partner':<25} {'Tipo':<13} {'Monto':>12} {'Banco':<20} {'Fecha'}"]
+        return f"No payments found in the last {dias} days."
+    tipo_map = {"inbound": "Receipt", "outbound": "Payment", "transfer": "Transfer"}
+    lines = [f"{'Reference':<16} {'Partner':<25} {'Type':<13} {'Amount':>12} {'Bank':<20} {'Date'}"]
     lines.append("-" * 100)
     for p in payments:
         lines.append(
@@ -784,18 +763,18 @@ def banco_pagos_recientes(dias: int = 7, limite: int = 20) -> str:
     return "\n".join(lines)
 
 
-# â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
-#  ðŸ” UTILIDADES GENERALES
-# â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+# ---------------------------------------------------------------------------
+#  GENERAL UTILITIES
+# ---------------------------------------------------------------------------
 
 @mcp.tool()
 def odoo_buscar_cliente(nombre: str, limite: int = 10) -> str:
     """
-    Busca un cliente/contacto en Odoo por nombre.
+    Search an Odoo contact / customer by name.
 
     Args:
-        nombre: texto a buscar en el nombre del contacto
-        limite: mÃ¡ximo de resultados
+        nombre: text to search in the contact name or email
+        limite: max results
     """
     client = get_client()
     if client is None:
@@ -807,8 +786,8 @@ def odoo_buscar_cliente(nombre: str, limite: int = 10) -> str:
         limit=limite
     )
     if not partners:
-        return f"No se encontraron contactos con '{nombre}'."
-    lines = [f"{'ID':<6} {'Nombre':<30} {'Email':<28} {'TelÃ©fono':<15} {'Ciudad'}"]
+        return f"No contacts found matching '{nombre}'."
+    lines = [f"{'ID':<6} {'Name':<30} {'Email':<28} {'Phone':<15} {'City'}"]
     lines.append("-" * 90)
     for p in partners:
         lines.append(
@@ -820,6 +799,10 @@ def odoo_buscar_cliente(nombre: str, limite: int = 10) -> str:
     return "\n".join(lines)
 
 
+# ---------------------------------------------------------------------------
+#  ACCOUNTING
+# ---------------------------------------------------------------------------
+
 @mcp.tool()
 def contabilidad_facturas_proveedor(
     fecha_desde: str = "",
@@ -829,14 +812,14 @@ def contabilidad_facturas_proveedor(
     buscar: str = ""
 ) -> str:
     """
-    Lista facturas de proveedor (compras) para ayudar a conciliar movimientos bancarios.
+    List vendor bills to help reconcile bank movements.
 
     Args:
-        fecha_desde: fecha inicio en YYYY-MM-DD (ej: 2026-05-01)
-        fecha_hasta: fecha fin en YYYY-MM-DD (ej: 2026-05-31)
-        estado: 'draft' (borrador), 'posted' (confirmada), 'cancel' (cancelada), 'all'
-        limite: maximo de resultados
-        buscar: texto para filtrar por proveedor o referencia
+        fecha_desde: start date YYYY-MM-DD (e.g. 2026-05-01)
+        fecha_hasta: end date YYYY-MM-DD (e.g. 2026-05-31)
+        estado: 'draft', 'posted', 'cancel', 'all'
+        limite: max results
+        buscar: filter by vendor name or reference
     """
     client = get_client()
     if client is None:
@@ -852,18 +835,16 @@ def contabilidad_facturas_proveedor(
         domain.append("|")
         domain.append(("partner_id.name", "ilike", buscar))
         domain.append(("ref", "ilike", buscar))
-
     fields = ["name", "partner_id", "invoice_date", "amount_total",
-              "amount_residual", "state", "payment_state", "ref", "invoice_origin"]
+              "amount_residual", "state", "payment_state", "ref"]
     facturas = client.search_read("account.move", domain, fields, limit=limite, order="invoice_date desc")
-
     if not facturas:
-        return "No se encontraron facturas de proveedor con esos filtros."
-
-    pago_map = {"not_paid": "Sin pagar", "in_payment": "En proceso", "paid": "Pagada",
-                "partial": "Parcial", "reversed": "Revertida", "invoicing_legacy": "Legacy"}
-
-    lines = [f"{'Factura':<14} {'Proveedor':<28} {'Fecha':<12} {'Total':>12} {'Pendiente':>12} {'Pago'}"]
+        return "No vendor bills found with those filters."
+    pago_map = {
+        "not_paid": "Unpaid", "in_payment": "In progress", "paid": "Paid",
+        "partial": "Partial", "reversed": "Reversed"
+    }
+    lines = [f"{'Bill':<14} {'Vendor':<28} {'Date':<12} {'Total':>12} {'Pending':>12} {'Payment'}"]
     lines.append("-" * 90)
     total_pendiente = 0
     for f in facturas:
@@ -878,7 +859,7 @@ def contabilidad_facturas_proveedor(
             f"{pago_map.get(f.get('payment_state', ''), f.get('payment_state', ''))}"
         )
     lines.append("-" * 90)
-    lines.append(f"{'TOTAL PENDIENTE':>70} ${total_pendiente:>11,.0f}")
+    lines.append(f"{'TOTAL PENDING':>70} ${total_pendiente:>11,.0f}")
     return "\n".join(lines)
 
 
@@ -888,31 +869,25 @@ def contabilidad_cruzar_banco_facturas(
     fecha_hasta: str = ""
 ) -> str:
     """
-    Cruza movimientos bancarios sin conciliar con facturas de proveedor sin pagar
-    para identificar posibles matches por monto.
+    Cross-reference unreconciled bank movements with unpaid vendor bills by amount.
 
     Args:
-        fecha_desde: fecha inicio YYYY-MM-DD
-        fecha_hasta: fecha fin YYYY-MM-DD
+        fecha_desde: start date YYYY-MM-DD
+        fecha_hasta: end date YYYY-MM-DD
     """
     client = get_client()
     if client is None:
         return _not_configured_msg()
-
-    # Movimientos sin conciliar
     domain_banco: list = [("is_reconciled", "=", False), ("statement_id", "!=", False)]
     if fecha_desde:
         domain_banco.append(("date", ">=", fecha_desde))
     if fecha_hasta:
         domain_banco.append(("date", "<=", fecha_hasta))
-
     movimientos = client.search_read(
         "account.bank.statement.line", domain_banco,
         ["date", "payment_ref", "amount", "partner_name"],
         limit=200
     )
-
-    # Facturas sin pagar
     domain_fact: list = [
         ("move_type", "in", ["in_invoice", "in_receipt"]),
         ("state", "=", "posted"),
@@ -922,14 +897,11 @@ def contabilidad_cruzar_banco_facturas(
         domain_fact.append(("invoice_date", ">=", fecha_desde))
     if fecha_hasta:
         domain_fact.append(("invoice_date", "<=", fecha_hasta))
-
     facturas = client.search_read(
         "account.move", domain_fact,
         ["name", "partner_id", "invoice_date", "amount_total", "amount_residual"],
         limit=200
     )
-
-    # Cruzar por monto (egresos bancarios vs facturas pendientes)
     matches = []
     for mov in movimientos:
         monto_banco = abs(mov.get("amount", 0))
@@ -937,38 +909,32 @@ def contabilidad_cruzar_banco_facturas(
             continue
         for fact in facturas:
             monto_fact = fact.get("amount_residual", 0)
-            if abs(monto_banco - monto_fact) < 1:  # tolerancia $1
+            if abs(monto_banco - monto_fact) < 1:
                 matches.append({
                     "fecha_banco": mov.get("date", ""),
                     "ref_banco": str(mov.get("payment_ref", ""))[:35],
-                    "partner_banco": str(mov.get("partner_name") or "Sin partner")[:20],
+                    "partner_banco": str(mov.get("partner_name") or "No partner")[:20],
                     "monto": monto_banco,
                     "factura": str(fact.get("name", "")),
                     "proveedor": str(fact["partner_id"][1] if fact.get("partner_id") else "N/A")[:25],
                     "fecha_fact": fact.get("invoice_date", "")
                 })
-
     if not matches:
         return (
-            f"No se encontraron matches exactos entre movimientos bancarios y facturas "
-            f"en el periodo {fecha_desde} - {fecha_hasta}.\n"
-            f"Movimientos revisados: {len(movimientos)} | Facturas revisadas: {len(facturas)}"
+            f"No exact matches found between bank movements and vendor bills "
+            f"for the period {fecha_desde} - {fecha_hasta}.\n"
+            f"Movements reviewed: {len(movimientos)} | Bills reviewed: {len(facturas)}"
         )
-
     lines = [
-        f"Matches encontrados: {len(matches)}",
+        f"Matches found: {len(matches)}",
         "",
-        f"{'Fecha Banco':<12} {'Referencia Banco':<36} {'Monto':>12} {'Factura':<14} {'Proveedor':<26} {'Fecha Fact.'}",
-        "-" * 115
+        f"{'Bank Date':<12} {'Bank Reference':<36} {'Bank Partner':<22} "
+        f"{'Amount':>12} {'Bill':<14} {'Vendor':<26} {'Bill Date'}",
+        "-" * 130,
     ]
     for m in matches:
         lines.append(
-            f"{m['fecha_banco']:<12} {m['ref_banco']:<36} ${m['monto']:>11,.0f} "
-            f"{m['factura']:<14} {m['proveedor']:<26} {m['fecha_fact']}"
+            f"{m['fecha_banco']:<12} {m['ref_banco']:<36} {m['partner_banco']:<22} "
+            f"${m['monto']:>11,.2f} {m['factura']:<14} {m['proveedor']:<26} {m['fecha_fact']}"
         )
     return "\n".join(lines)
-
-
-if __name__ == "__main__":
-    mcp.run()
-
