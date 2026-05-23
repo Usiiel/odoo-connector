@@ -15,6 +15,7 @@ import os
 import json
 import sys
 import traceback
+print("[MCP-ODOO] server.py loading...", file=sys.stderr, flush=True)
 from pathlib import Path
 from datetime import datetime, timedelta
 
@@ -918,4 +919,203 @@ def contabilidad_cruzar_banco_facturas(
             f"{m['fecha_banco']:<12} {m['ref_banco']:<36} {m['partner_banco']:<22} "
             f"${m['monto']:>11,.2f} {m['factura']:<14} {m['proveedor']:<26} {m['fecha_fact']}"
         )
+    return "\n".join(lines)
+
+
+if __name__ == "__main__" or True:
+    mcp.run()
+
+
+# ---------------------------------------------------------------------------
+#  ACTIVITIES
+# ---------------------------------------------------------------------------
+
+@mcp.tool()
+def actividades_pendientes(
+    usuario: str = "",
+    vencidas: bool = False,
+    limite: int = 30
+) -> str:
+    """
+    List pending activities scheduled in Odoo for a user.
+
+    Args:
+        usuario: filter by user name (partial, empty = all users)
+        vencidas: if True, show only overdue activities (past deadline)
+        limite: max results
+    """
+    client = get_client()
+    if client is None:
+        return _not_configured_msg()
+
+    domain: list = []
+    if usuario:
+        domain.append(("user_id.name", "ilike", usuario))
+    if vencidas:
+        today = datetime.now().strftime("%Y-%m-%d")
+        domain.append(("date_deadline", "<", today))
+
+    fields = [
+        "activity_type_id", "summary", "note", "date_deadline",
+        "user_id", "res_model", "res_name", "res_id"
+    ]
+    activities = client.search_read(
+        "mail.activity", domain, fields, limit=limite, order="date_deadline asc"
+    )
+
+    if not activities:
+        msg = "overdue" if vencidas else "pending"
+        return f"No {msg} activities found."
+
+    today = datetime.now().date()
+    lines = [
+        f"{'Deadline':<12} {'Type':<18} {'Summary':<28} {'Assigned to':<20} {'Document'}"
+    ]
+    lines.append("-" * 100)
+    for a in activities:
+        deadline_str = str(a.get("date_deadline") or "No date")
+        try:
+            deadline_date = datetime.strptime(deadline_str, "%Y-%m-%d").date()
+            overdue = " (!)" if deadline_date < today else ""
+        except Exception:
+            overdue = ""
+
+        act_type = str(a["activity_type_id"][1] if a.get("activity_type_id") else "")
+        summary = str(a.get("summary") or "")
+        user = str(a["user_id"][1] if a.get("user_id") else "Unassigned")
+        doc = str(a.get("res_name") or a.get("res_model") or "")
+
+        lines.append(
+            f"{deadline_str + overdue:<12} "
+            f"{act_type[:17]:<18} "
+            f"{summary[:27]:<28} "
+            f"{user[:19]:<20} "
+            f"{doc[:35]}"
+        )
+
+    overdue_count = sum(
+        1 for a in activities
+        if a.get("date_deadline") and
+        datetime.strptime(str(a["date_deadline"]), "%Y-%m-%d").date() < today
+    )
+    header = f"Pending activities ({len(activities)} total, {overdue_count} overdue):\n"
+    return header + "\n".join(lines)
+
+
+# ---------------------------------------------------------------------------
+#  HELPDESK
+# ---------------------------------------------------------------------------
+
+@mcp.tool()
+def helpdesk_tickets(
+    estado: str = "open",
+    equipo: str = "",
+    asignado: str = "",
+    prioridad: str = "",
+    limite: int = 20,
+    buscar: str = ""
+) -> str:
+    """
+    List Helpdesk tickets.
+
+    Args:
+        estado: 'open' (not closed), 'done' (resolved), 'all'
+        equipo: filter by team name (partial)
+        asignado: filter by assigned user name (partial)
+        prioridad: '0' (normal), '1' (low), '2' (high), '3' (urgent), '' = all
+        limite: max results
+        buscar: filter by ticket title or customer name
+    """
+    client = get_client()
+    if client is None:
+        return _not_configured_msg()
+
+    domain: list = []
+    if estado == "open":
+        domain.append(("stage_id.is_close", "=", False))
+    elif estado == "done":
+        domain.append(("stage_id.is_close", "=", True))
+    if equipo:
+        domain.append(("team_id.name", "ilike", equipo))
+    if asignado:
+        domain.append(("user_id.name", "ilike", asignado))
+    if prioridad:
+        domain.append(("priority", "=", prioridad))
+    if buscar:
+        domain.append("|")
+        domain.append(("name", "ilike", buscar))
+        domain.append(("partner_id.name", "ilike", buscar))
+
+    fields = [
+        "name", "partner_id", "user_id", "team_id", "stage_id",
+        "priority", "create_date", "date_last_stage_update", "ticket_type_id"
+    ]
+    tickets = client.search_read(
+        "helpdesk.ticket", domain, fields, limit=limite, order="create_date desc"
+    )
+
+    if not tickets:
+        return "No helpdesk tickets found with those filters."
+
+    priority_map = {"0": "Normal", "1": "Low", "2": "High", "3": "Urgent"}
+
+    lines = [
+        f"{'ID':<6} {'Title':<32} {'Customer':<22} {'Stage':<18} "
+        f"{'Priority':<9} {'Assigned':<18} {'Created'}"
+    ]
+    lines.append("-" * 120)
+    for t in tickets:
+        lines.append(
+            f"{t['id']:<6} "
+            f"{str(t.get('name', ''))[:31]:<32} "
+            f"{str(t['partner_id'][1] if t.get('partner_id') else 'N/A')[:21]:<22} "
+            f"{str(t['stage_id'][1] if t.get('stage_id') else '')[:17]:<18} "
+            f"{priority_map.get(str(t.get('priority', '0')), 'Normal'):<9} "
+            f"{str(t['user_id'][1] if t.get('user_id') else 'Unassigned')[:17]:<18} "
+            f"{str(t.get('create_date', ''))[:10]}"
+        )
+    return f"Helpdesk tickets ({len(tickets)}):\n" + "\n".join(lines)
+
+
+@mcp.tool()
+def helpdesk_detalle_ticket(ticket_id: int) -> str:
+    """
+    Get full details of a helpdesk ticket.
+
+    Args:
+        ticket_id: numeric ticket ID
+    """
+    client = get_client()
+    if client is None:
+        return _not_configured_msg()
+
+    tickets = client.read(
+        "helpdesk.ticket", [ticket_id],
+        ["name", "partner_id", "user_id", "team_id", "stage_id",
+         "priority", "description", "create_date", "date_last_stage_update",
+         "ticket_type_id", "tag_ids"]
+    )
+    if not tickets:
+        return f"Ticket {ticket_id} not found."
+
+    t = tickets[0]
+    priority_map = {"0": "Normal", "1": "Low", "2": "High", "3": "Urgent"}
+
+    lines = [
+        f"Ticket #{t['id']}: {t.get('name', '')}",
+        f"Customer:  {t['partner_id'][1] if t.get('partner_id') else 'N/A'}",
+        f"Team:      {t['team_id'][1] if t.get('team_id') else 'N/A'}",
+        f"Stage:     {t['stage_id'][1] if t.get('stage_id') else 'N/A'}",
+        f"Priority:  {priority_map.get(str(t.get('priority', '0')), 'Normal')}",
+        f"Assigned:  {t['user_id'][1] if t.get('user_id') else 'Unassigned'}",
+        f"Type:      {t['ticket_type_id'][1] if t.get('ticket_type_id') else 'N/A'}",
+        f"Created:   {str(t.get('create_date', ''))[:16]}",
+        f"Last update: {str(t.get('date_last_stage_update', ''))[:16]}",
+    ]
+    if t.get("description"):
+        import re
+        desc = re.sub(r"<[^>]+>", "", str(t["description"])).strip()
+        if desc:
+            lines += ["", "Description:", desc[:500]]
+
     return "\n".join(lines)
