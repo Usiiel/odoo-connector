@@ -2054,5 +2054,235 @@ def citas_tipos(limite: int = 20) -> str:
     return f"Appointment types ({len(types)}):\n" + "\n".join(lines)
 
 
+@mcp.tool()
+def nomina_recibos(
+    empleado: str = "",
+    anio: int = 0,
+    mes: int = 0,
+    estado: str = "all",
+    limite: int = 20
+) -> str:
+    """List payslips (recibos de salario) with filters.
+
+    Args:
+        empleado: filter by employee name (partial, empty = all)
+        anio: year e.g. 2026 (0 = current year)
+        mes: month 1-12 (0 = all months)
+        estado: 'draft', 'verify', 'done', 'paid', 'cancel', 'all'
+        limite: max results
+    """
+    client = get_client()
+    if client is None:
+        return _not_configured_msg()
+
+    from datetime import datetime
+    now = datetime.now()
+    if anio == 0:
+        anio = now.year
+
+    domain = []
+    if estado != "all":
+        domain.append(["state", "=", estado])
+    if mes:
+        month_str = f"{anio}-{mes:02d}"
+        domain.append(["date_from", ">=", f"{month_str}-01"])
+        import calendar
+        last_day = calendar.monthrange(anio, mes)[1]
+        domain.append(["date_to", "<=", f"{month_str}-{last_day:02d}"])
+    else:
+        domain.append(["date_from", ">=", f"{anio}-01-01"])
+        domain.append(["date_to", "<=", f"{anio}-12-31"])
+
+    if empleado:
+        domain.append(["employee_id.name", "ilike", empleado])
+
+    fields = ["name", "employee_id", "department_id", "date_from", "date_to",
+              "state", "basic_wage", "gross_wage", "net_wage", "employer_cost",
+              "paid", "paid_date", "currency_id"]
+    try:
+        slips = client.search_read("hr.payslip", domain, fields,
+                                   limit=limite, order="date_from desc")
+    except Exception as e:
+        return f"[!] Could not read payslips: {e}"
+
+    if not slips:
+        return "No payslips found for the given filters."
+
+    lines = [f"{'ID':<5} {'Employee':<22} {'Period':<14} {'State':<8} "
+             f"{'Net Wage':>12} {'Paid'}"]
+    lines.append("-" * 75)
+    for s in slips:
+        emp = str(s.get("employee_id", [0, ""])[1])[:21]
+        d_from = str(s.get("date_from", ""))[:7]
+        state = str(s.get("state", ""))
+        net = s.get("net_wage", 0)
+        currency = str(s.get("currency_id", [0, ""])[1])
+        paid = "Yes" if s.get("paid") else "No"
+        lines.append(
+            f"{s['id']:<5} {emp:<22} {d_from:<14} {state:<8} "
+            f"{net:>12,.0f} {currency}  {paid}"
+        )
+
+    total_net = sum(s.get("net_wage", 0) for s in slips)
+    currency = str(slips[0].get("currency_id", [0, ""])[1]) if slips else ""
+    lines.append("-" * 75)
+    lines.append(f"{'Total net wage:':<42} {total_net:>12,.0f} {currency}  ({len(slips)} slips)")
+    return "\n".join(lines)
+
+
+@mcp.tool()
+def nomina_detalle(recibo_id: int) -> str:
+    """Get full detail of a payslip including all salary component lines.
+
+    Args:
+        recibo_id: numeric payslip ID
+    """
+    client = get_client()
+    if client is None:
+        return _not_configured_msg()
+
+    slip_fields = ["name", "employee_id", "department_id", "job_id",
+                   "date_from", "date_to", "state", "struct_id",
+                   "basic_wage", "gross_wage", "net_wage", "employer_cost",
+                   "sum_worked_hours", "paid", "paid_date", "currency_id",
+                   "note", "payslip_run_id"]
+    try:
+        slips = client.search_read("hr.payslip", [["id", "=", recibo_id]],
+                                   slip_fields, limit=1)
+    except Exception as e:
+        return f"[!] Could not read payslip: {e}"
+
+    if not slips:
+        return f"Payslip ID {recibo_id} not found."
+
+    s = slips[0]
+    currency = str(s.get("currency_id", [0, ""])[1])
+
+    out = [
+        f"Payslip: {s.get('name', '')}",
+        f"Employee:   {s.get('employee_id', [0,''])[1]}",
+        f"Department: {s.get('department_id', [0,''])[1]}",
+        f"Job:        {s.get('job_id', [0,''])[1]}",
+        f"Period:     {s.get('date_from','')} to {s.get('date_to','')}",
+        f"Structure:  {s.get('struct_id', [0,''])[1]}",
+        f"Pay Run:    {s.get('payslip_run_id', [0,''])[1] or '(none)'}",
+        f"State:      {s.get('state','')}",
+        f"Worked hrs: {s.get('sum_worked_hours', 0):.1f} h",
+        "",
+        f"{'Component':<35} {'Category':<20} {'Amount':>14}",
+        "-" * 72,
+    ]
+
+    # Salary lines
+    line_fields = ["name", "code", "category_id", "amount", "total",
+                   "quantity", "rate", "appears_on_payslip", "ytd"]
+    try:
+        lines = client.search_read(
+            "hr.payslip.line",
+            [["slip_id", "=", recibo_id], ["appears_on_payslip", "=", True]],
+            line_fields,
+            order="sequence asc"
+        )
+    except Exception as e:
+        lines = []
+        out.append(f"(could not load lines: {e})")
+
+    for ln in lines:
+        cat = str(ln.get("category_id", [0, ""])[1])[:19]
+        total = ln.get("total", ln.get("amount", 0))
+        ytd = ln.get("ytd", 0)
+        name = str(ln.get("name", ""))[:34]
+        out.append(
+            f"{name:<35} {cat:<20} {total:>14,.0f}"
+            + (f"  (YTD: {ytd:,.0f})" if ytd else "")
+        )
+
+    out += [
+        "-" * 72,
+        f"{'Basic Wage:':<55} {s.get('basic_wage',0):>14,.0f} {currency}",
+        f"{'Gross Wage:':<55} {s.get('gross_wage',0):>14,.0f} {currency}",
+        f"{'Net Wage:':<55} {s.get('net_wage',0):>14,.0f} {currency}",
+        f"{'Employer Cost:':<55} {s.get('employer_cost',0):>14,.0f} {currency}",
+    ]
+    if s.get("paid"):
+        out.append(f"{'Paid on:':<55} {s.get('paid_date','')}")
+    if s.get("note"):
+        out.append(f"\nNote: {s['note']}")
+
+    return "\n".join(out)
+
+
+@mcp.tool()
+def nomina_resumen_mes(anio: int = 0, mes: int = 0) -> str:
+    """Monthly payroll summary grouped by employee showing net wages and costs.
+
+    Args:
+        anio: year (0 = current year)
+        mes: month 1-12 (0 = current month)
+    """
+    client = get_client()
+    if client is None:
+        return _not_configured_msg()
+
+    from datetime import datetime
+    import calendar
+    now = datetime.now()
+    if anio == 0:
+        anio = now.year
+    if mes == 0:
+        mes = now.month
+
+    month_str = f"{anio}-{mes:02d}"
+    last_day = calendar.monthrange(anio, mes)[1]
+    domain = [
+        ["date_from", ">=", f"{month_str}-01"],
+        ["date_to", "<=", f"{month_str}-{last_day:02d}"],
+        ["state", "!=", "cancel"],
+    ]
+    fields = ["employee_id", "department_id", "basic_wage", "gross_wage",
+              "net_wage", "employer_cost", "state", "paid", "currency_id"]
+    try:
+        slips = client.search_read("hr.payslip", domain, fields,
+                                   limit=200, order="employee_id asc")
+    except Exception as e:
+        return f"[!] Could not read payroll: {e}"
+
+    if not slips:
+        return f"No payslips found for {month_str}."
+
+    currency = str(slips[0].get("currency_id", [0, ""])[1]) if slips else ""
+    month_name = datetime(anio, mes, 1).strftime("%B %Y")
+
+    lines = [
+        f"Payroll summary — {month_name}",
+        "",
+        f"{'Employee':<28} {'Department':<25} {'Net Wage':>14} {'Empl.Cost':>13} {'Paid'}",
+        "-" * 88,
+    ]
+
+    total_net = 0
+    total_cost = 0
+    for s in slips:
+        emp = str(s.get("employee_id", [0, ""])[1])[:27]
+        dept = str(s.get("department_id", [0, ""])[1])[:24]
+        net = s.get("net_wage", 0)
+        cost = s.get("employer_cost", 0)
+        paid = "Yes" if s.get("paid") else "No"
+        total_net += net
+        total_cost += cost
+        lines.append(
+            f"{emp:<28} {dept:<25} {net:>14,.0f} {cost:>13,.0f}  {paid}"
+        )
+
+    lines += [
+        "-" * 88,
+        f"{'TOTAL':<53} {total_net:>14,.0f} {total_cost:>13,.0f}",
+        f"",
+        f"Headcount: {len(slips)} employee(s)   Currency: {currency}",
+        f"Paid: {sum(1 for s in slips if s.get('paid'))} / {len(slips)}",
+    ]
+    return "\n".join(lines)
+
+
 if __name__ == "__main__" or True:
     mcp.run()

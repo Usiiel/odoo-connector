@@ -206,6 +206,18 @@
     {
       "name": "citas_tipos",
       "description": "List available appointment types configured in Odoo"
+    },
+    {
+      "name": "nomina_recibos",
+      "description": "List payslips filtered by employee, period and status"
+    },
+    {
+      "name": "nomina_detalle",
+      "description": "Full payslip detail with all salary component lines and YTD totals"
+    },
+    {
+      "name": "nomina_resumen_mes",
+      "description": "Monthly payroll summary grouped by employee with net wages and employer costs"
     }
   ]
 }
