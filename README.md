@@ -2,29 +2,38 @@
 
 <!-- mcp-name: io.github.Usiiel/odoo-connector -->
 
-Connect Claude to your Odoo instance (Online or Community) and manage your entire business in natural language — CRM, sales, purchases, inventory, projects, helpdesk, expenses, bank reconciliation, marketing, and more.
+Connect Claude to your Odoo instance (Online or Community) and manage your entire business in natural language — CRM, sales, purchases, inventory, projects, helpdesk, expenses, bank reconciliation, payroll, marketing, and more.
 
-## What you can do
+## Module Status
 
-- **CRM** — Query pipeline, create opportunities, move stages, get revenue forecasts
-- **Sales** — List orders, monthly summaries by salesperson, order details
-- **Purchases** — RFQs, confirmed orders, monthly vendor summaries
-- **Inventory** — Stock levels by product/location, transfers and movements
-- **Projects** — List projects and tasks, filter by assignee or status
-- **Employees** — Directory with department filters
-- **Calendar** — Upcoming events and meetings
-- **Subscriptions** — Active recurring contracts
-- **Expenses** — Track pending approvals, create expenses, summaries by employee
-- **Bank Reconciliation** — Find unreconciled movements, cross-reference with vendor bills
-- **Helpdesk** — Tickets by team, priority, status; full ticket details
-- **Website / eCommerce** — Published pages and product catalog
-- **Activities** — Pending and overdue activities across all models
-- **Attendances** — Employee check-in/check-out reports
-- **Email Marketing** — Campaign list and status
-- **WhatsApp** — Messages and templates
-- **Conversations** — Discuss channels
-- **Documents** — File list from Odoo Documents module
-- **Appointments** — Scheduled appointments and types
+| Status | Module | Tools | Notes |
+|--------|--------|-------|-------|
+| ✅ | CRM | 4 | Pipeline, leads, stages, revenue forecast |
+| ✅ | Sales | 3 | Orders, monthly summary, order detail |
+| ✅ | Purchases | 3 | RFQs, confirmed orders, vendor summary |
+| ✅ | Payroll | 3 | Payslips, line detail, monthly summary |
+| ✅ | Expenses | 3 | List, create, summary by employee |
+| ✅ | Accounting / Bank | 6 | Reconciliation, payments, vendor bills |
+| ✅ | Inventory | 2 | Stock levels, transfers |
+| ✅ | Projects | 2 | Projects, tasks |
+| ✅ | Helpdesk | 3 | Tickets, detail |
+| ✅ | Employees | 1 | Directory with department filters |
+| ✅ | Attendances | 1 | Check-in/check-out report |
+| ✅ | Subscriptions | 1 | Active recurring contracts |
+| ✅ | Calendar | 1 | Upcoming events |
+| ✅ | Activities | 1 | Pending and overdue |
+| ✅ | Website / eCommerce | 2 | Published pages, product catalog |
+| ✅ | Email Marketing | 1 | Campaigns list and status |
+| ✅ | WhatsApp | 2 | Messages, templates |
+| ✅ | Conversations | 1 | Discuss channels |
+| ✅ | Documents | 1 | Files by folder |
+| ✅ | Appointments | 2 | Scheduled appointments, types |
+| ✅ | Contacts | 1 | Search customers |
+| ⚠️ | Social Marketing | — | External analytics not available via API |
+| ⚠️ | Live Chat | — | No useful XML-RPC endpoints |
+| ⚠️ | Odoo AI | — | Internal functionality, no external API |
+
+**45 tools · 21 modules integrated · Odoo 16–19**
 
 ## Requirements
 
@@ -88,7 +97,7 @@ claude mcp add odoo -- python /path/to/server.py
 
 Ask Claude: `odoo_ping` -- you should see your Odoo version and user ID.
 
-## Available Tools (42)
+## Available Tools (45)
 
 | Tool | Description |
 |------|-------------|
@@ -134,6 +143,9 @@ Ask Claude: `odoo_ping` -- you should see your Odoo version and user ID.
 | `documentos_listar` | Documents module files |
 | `citas_listar` | Scheduled appointments |
 | `citas_tipos` | Appointment types |
+| `nomina_recibos` | List payslips by employee / period |
+| `nomina_detalle` | Full payslip with salary components and YTD |
+| `nomina_resumen_mes` | Monthly payroll summary by employee |
 
 ## Example prompts
 
@@ -150,15 +162,21 @@ List my pending activities for today
 Show helpdesk tickets assigned to me
 Attendance report for the team today
 List active email marketing campaigns
-Show me published website pages
+Show payroll summary for April 2026
+Show me the payslip detail for employee X
 ```
 
 ## Compatibility
 
-Tested with Odoo 19.0 (Online). Should work with Odoo 16+.
+Tested with Odoo 19.0 Enterprise (Online). Should work with Odoo 16+.
 For Odoo 15 or earlier, some field names may differ.
 
 ## Changelog
+
+### v0.2.1 (2026-05-23)
+- Added Payroll module: `nomina_recibos`, `nomina_detalle`, `nomina_resumen_mes`
+- Updated module status table in README
+- Total: 45 tools covering 21 Odoo modules
 
 ### v0.2.0 (2026-05-23)
 - Added 24 new tools across 14 modules: Activities, Helpdesk, Website, eCommerce, Purchases, Inventory, Projects, Employees, Calendar, Subscriptions, Attendances, Email Marketing, WhatsApp, Conversations, Documents, Appointments
