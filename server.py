@@ -13,16 +13,36 @@ Run 'odoo_setup' tool if credentials are not configured yet.
 
 import os
 import json
+import sys
+import traceback
 from pathlib import Path
 from datetime import datetime, timedelta
-from dotenv import load_dotenv, set_key
-from mcp.server.fastmcp import FastMCP, Context
+
+try:
+    from dotenv import load_dotenv, set_key
+except ImportError:
+    def load_dotenv(**kwargs): pass
+    def set_key(path, key, val): pass
+
+try:
+    from mcp.server.fastmcp import FastMCP
+except ImportError:
+    raise
+
 from odoo_client import OdooClient
 
 ENV_PATH = Path(__file__).parent / ".env"
-load_dotenv(dotenv_path=ENV_PATH)
+try:
+    load_dotenv(dotenv_path=ENV_PATH)
+except Exception as e:
+    print(f"[WARN] dotenv load failed: {e}", file=sys.stderr)
 
-mcp = FastMCP("Odoo MCP")
+try:
+    mcp = FastMCP("Odoo MCP")
+except Exception as e:
+    print(f"[FATAL] FastMCP init failed: {e}", file=sys.stderr)
+    traceback.print_exc(file=sys.stderr)
+    sys.exit(1)
 
 
 # ---------------------------------------------------------------------------
@@ -61,95 +81,53 @@ def _not_configured_msg() -> str:
 # ---------------------------------------------------------------------------
 
 @mcp.tool()
-async def odoo_setup(ctx: Context) -> str:
+def odoo_setup(
+    url: str = "",
+    db: str = "",
+    username: str = "",
+    api_key: str = ""
+) -> str:
     """
-    Interactive setup wizard. Connects Claude to your Odoo instance step by step.
-    Run this tool first if you have not configured credentials yet.
+    Configure the Odoo connector. Provide all four parameters to connect.
+
+    Args:
+        url: Your Odoo URL, e.g. https://mycompany.odoo.com
+        db: Database name (subdomain for SaaS, e.g. 'mycompany')
+        username: Your Odoo login email
+        api_key: API key from Odoo > Preferences > Security > API Keys
     """
-    r1 = await ctx.elicit(
-        message=(
-            "Welcome to the Odoo connector setup!\n\n"
-            "Step 1/4 - What is your Odoo URL?\n"
-            "Example: https://mycompany.odoo.com"
-        ),
-        schema={
-            "type": "object",
-            "properties": {
-                "url": {
-                    "type": "string",
-                    "title": "Odoo URL",
-                    "description": "Full URL including https://",
-                }
-            },
-            "required": ["url"],
-        },
-    )
-    if r1.action != "submit":
-        return "Setup cancelled."
-    url = r1.data.get("url", "").strip().rstrip("/")
-
-    r2 = await ctx.elicit(
-        message=(
-            "Step 2/4 - What is your database name?\n"
-            "For Odoo SaaS the database name is the subdomain.\n"
-            "Example: if your URL is https://mycompany.odoo.com the database is 'mycompany'."
-        ),
-        schema={
-            "type": "object",
-            "properties": {
-                "db": {
-                    "type": "string",
-                    "title": "Database name",
-                }
-            },
-            "required": ["db"],
-        },
-    )
-    if r2.action != "submit":
-        return "Setup cancelled."
-    db = r2.data.get("db", "").strip()
-
-    r3 = await ctx.elicit(
-        message="Step 3/4 - What is your Odoo login email?",
-        schema={
-            "type": "object",
-            "properties": {
-                "username": {
-                    "type": "string",
-                    "title": "Email / username",
-                }
-            },
-            "required": ["username"],
-        },
-    )
-    if r3.action != "submit":
-        return "Setup cancelled."
-    username = r3.data.get("username", "").strip()
-
-    r4 = await ctx.elicit(
-        message=(
-            "Step 4/4 - Paste your Odoo API key.\n\n"
-            "To generate one: Odoo > click your avatar > Preferences > "
-            "Security tab > API Keys > New Key.\n"
-            "Name it 'Claude MCP' and copy the generated key."
-        ),
-        schema={
-            "type": "object",
-            "properties": {
-                "api_key": {
-                    "type": "string",
-                    "title": "API Key",
-                }
-            },
-            "required": ["api_key"],
-        },
-    )
-    if r4.action != "submit":
-        return "Setup cancelled."
-    api_key = r4.data.get("api_key", "").strip()
-
     if not all([url, db, username, api_key]):
-        return "[!] One or more values were empty. Please run odoo_setup again."
+        configured = all([
+            os.environ.get("ODOO_URL"),
+            os.environ.get("ODOO_DB"),
+            os.environ.get("ODOO_USERNAME"),
+            os.environ.get("ODOO_API_KEY"),
+        ])
+        if configured:
+            return (
+                "[OK] Odoo is already configured.\n"
+                f"URL: {os.environ.get('ODOO_URL')}\n"
+                f"DB:  {os.environ.get('ODOO_DB')}\n"
+                f"User:{os.environ.get('ODOO_USERNAME')}\n\n"
+                "To reconfigure, call odoo_setup with all four parameters:\n"
+                "  url, db, username, api_key"
+            )
+        return (
+            "[!] Odoo connector is not configured yet.\n\n"
+            "Call odoo_setup with these four parameters:\n"
+            "  url      -> https://mycompany.odoo.com\n"
+            "  db       -> mycompany (the subdomain)\n"
+            "  username -> you@company.com\n"
+            "  api_key  -> generate at Odoo > Preferences > Security > API Keys\n\n"
+            "Example:\n"
+            "  odoo_setup(url='https://mycompany.odoo.com', db='mycompany', "
+            "username='me@company.com', api_key='abc123')"
+        )
+
+    url = url.strip().rstrip("/")
+    db = db.strip()
+    username = username.strip()
+    api_key = api_key.strip()
 
     try:
         client = OdooClient(url, db, username, api_key)
@@ -158,14 +136,17 @@ async def odoo_setup(ctx: Context) -> str:
     except Exception as e:
         return (
             f"[!] Connection failed: {e}\n"
-            "Please check your credentials and try odoo_setup again."
+            "Please check your credentials and try again."
         )
 
     ENV_PATH.touch(exist_ok=True)
-    set_key(str(ENV_PATH), "ODOO_URL", url)
-    set_key(str(ENV_PATH), "ODOO_DB", db)
-    set_key(str(ENV_PATH), "ODOO_USERNAME", username)
-    set_key(str(ENV_PATH), "ODOO_API_KEY", api_key)
+    try:
+        set_key(str(ENV_PATH), "ODOO_URL", url)
+        set_key(str(ENV_PATH), "ODOO_DB", db)
+        set_key(str(ENV_PATH), "ODOO_USERNAME", username)
+        set_key(str(ENV_PATH), "ODOO_API_KEY", api_key)
+    except Exception:
+        pass  # env file write failed, still set in-process vars
 
     os.environ["ODOO_URL"] = url
     os.environ["ODOO_DB"] = db
@@ -179,7 +160,7 @@ async def odoo_setup(ctx: Context) -> str:
         f"DB:      {db}\n"
         f"User:    {username} (UID: {uid})\n"
         f"Version: {server_ver}\n\n"
-        "Credentials saved to .env. You can now use all Odoo tools."
+        "Credentials saved. You can now use all Odoo tools."
     )
 
 
