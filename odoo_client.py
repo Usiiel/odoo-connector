@@ -15,8 +15,8 @@ class OdooClient:
         self.api_key = api_key
         self.uid: int | None = None
 
-        self._common = xmlrpc.client.ServerProxy(f"{self.url}/xmlrpc/2/common")
-        self._models = xmlrpc.client.ServerProxy(f"{self.url}/xmlrpc/2/object")
+        self._common = xmlrpc.client.ServerProxy(f"{self.url}/xmlrpc/2/common", allow_none=True)
+        self._models = xmlrpc.client.ServerProxy(f"{self.url}/xmlrpc/2/object", allow_none=True)
 
     def authenticate(self) -> int:
         """Autentica y retorna el uid del usuario."""
@@ -64,6 +64,40 @@ class OdooClient:
         return self._models.execute_kw(
             self.db, self.uid, self.api_key, model, "write", [ids, values]
         )
+
+    def call(self, model: str, method: str, ids: list[int], kwargs: dict | None = None) -> bool:
+        """
+        Call any Odoo model method (e.g. button_draft, action_post).
+        Discards the return value — methods like action_post return window-action
+        dicts that may contain None, which XML-RPC cannot serialize.
+        """
+        self.ensure_auth()
+        try:
+            self._models.execute_kw(
+                self.db, self.uid, self.api_key, model, method, [ids], kwargs or {}
+            )
+        except Exception as exc:
+            # Ignore xmlrpc.client.Fault about None/marshalling — the call itself succeeded
+            if "cannot marshal" not in str(exc) and "NoneType" not in str(exc):
+                raise
+        return True
+
+    def execute(self, model: str, method: str, args: list, kwargs: dict | None = None) -> Any:
+        """
+        General-purpose execute_kw with arbitrary positional args and kwargs.
+        Use this for wizard calls, default_get, or any method that needs context.
+        Silently discards return values that contain None (window actions, etc.).
+        """
+        self.ensure_auth()
+        try:
+            result = self._models.execute_kw(
+                self.db, self.uid, self.api_key, model, method, args, kwargs or {}
+            )
+            return result
+        except Exception as exc:
+            if "cannot marshal" not in str(exc) and "NoneType" not in str(exc):
+                raise
+            return None
 
     def fields_get(self, model: str, attributes: list[str] | None = None) -> dict:
         self.ensure_auth()
